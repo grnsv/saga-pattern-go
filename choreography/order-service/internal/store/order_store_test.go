@@ -32,7 +32,7 @@ func TestOrderStore_Get_NotFound(t *testing.T) {
 	s := NewInMemoryOrderStore()
 
 	_, err := s.Get("nonexistent")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
 
@@ -66,6 +66,6 @@ func TestOrderStore_Update_NotFound(t *testing.T) {
 	s := NewInMemoryOrderStore()
 
 	err := s.Update(&model.Order{ID: "nonexistent"})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }

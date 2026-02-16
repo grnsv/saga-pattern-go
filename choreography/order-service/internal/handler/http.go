@@ -28,8 +28,8 @@ type HTTPHandler struct {
 }
 
 // NewHTTPHandler creates a new HTTP handler.
-func NewHTTPHandler(store OrderStore) *HTTPHandler {
-	return &HTTPHandler{store: store}
+func NewHTTPHandler(s OrderStore) *HTTPHandler {
+	return &HTTPHandler{store: s}
 }
 
 // RegisterRoutes registers all HTTP routes on the given mux.
@@ -69,7 +69,9 @@ func (h *HTTPHandler) createOrder(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(order)
+	if err := json.NewEncoder(w).Encode(order); err != nil {
+		slog.Error("failed to encode response", "error", err)
+	}
 }
 
 func (h *HTTPHandler) getOrder(w http.ResponseWriter, r *http.Request) {
@@ -81,15 +83,17 @@ func (h *HTTPHandler) getOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(order)
+	if err := json.NewEncoder(w).Encode(order); err != nil {
+		slog.Error("failed to encode response", "error", err)
+	}
 }
 
 func (h *HTTPHandler) healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 func (h *HTTPHandler) readyz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }

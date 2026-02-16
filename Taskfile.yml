@@ -1,0 +1,112 @@
+version: "3"
+
+vars:
+  BIN_DIR: "{{.ROOT_DIR}}/.bin"
+  MODULES:
+    sh: find . -name 'go.mod' ! -path './go.mod' -exec dirname {} \; | sort
+
+tasks:
+  default:
+    silent: true
+    cmds:
+      - task --list
+
+  fmt:
+    desc: Format code with goimports
+    aliases: [format]
+    cmds:
+      - go tool goimports -local github.com/grnsv/saga-pattern-go -w choreography/ orchestration/
+
+  lint:
+    desc: Run golangci-lint on all modules
+    deps: [tools]
+    cmds:
+      - for: { var: MODULES }
+        cmd: echo "=> lint {{.ITEM}}" && cd "{{.ITEM}}" && "{{.BIN_DIR}}/golangci-lint" run ./...
+
+  test:
+    desc: Run tests across all modules
+    cmds:
+      - for: { var: MODULES }
+        cmd: echo "=> test {{.ITEM}}" && cd "{{.ITEM}}" && go test -race ./...
+
+  test:cover:
+    desc: Run tests with coverage
+    cmds:
+      - for: { var: MODULES }
+        cmd: echo "=> test {{.ITEM}}" && cd "{{.ITEM}}" && go test -race -coverprofile=coverage.out ./...
+
+  build:
+    desc: Build all services
+    cmds:
+      - for: { var: MODULES }
+        cmd: echo "=> build {{.ITEM}}" && cd "{{.ITEM}}" && CGO_ENABLED=0 go build ./cmd/...
+
+  up:
+    desc: Start choreography stack with Docker Compose
+    cmds:
+      - docker compose up -d
+
+  down:
+    desc: Stop choreography stack
+    cmds:
+      - docker compose down
+
+  orch:up:
+    desc: Start orchestration stack with Docker Compose
+    cmds:
+      - docker compose -f docker-compose.orchestration.yml up -d
+
+  orch:down:
+    desc: Stop orchestration stack
+    cmds:
+      - docker compose -f docker-compose.orchestration.yml down
+
+  smoke-test:
+    desc: Run choreography smoke tests
+    cmds:
+      - |
+        echo "Creating order..."
+        RESP=$(curl -s -X POST http://localhost:8080/orders -d '{"item":"widget","qty":1}')
+        ORDER_ID=$(echo "$RESP" | jq -r '.id')
+        echo "Order ID: $ORDER_ID"
+        echo "Waiting for saga to complete..."
+        sleep 5
+        curl -s "http://localhost:8080/orders/$ORDER_ID" | jq .
+
+  orch:smoke-test:
+    desc: Run orchestration smoke tests
+    cmds:
+      - |
+        echo "Creating order..."
+        RESP=$(curl -s -X POST http://localhost:8080/orders -d '{"item":"widget","qty":1}')
+        ORDER_ID=$(echo "$RESP" | jq -r '.id')
+        echo "Order ID: $ORDER_ID"
+        echo "Waiting for saga to complete..."
+        sleep 5
+        curl -s "http://localhost:8080/orders/$ORDER_ID" | jq .
+
+  check:
+    desc: Run all checks (fmt, lint, test)
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: test
+
+  tools:
+    desc: Install development tools
+    internal: true
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - GOBIN={{.BIN_DIR}} go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+    sources:
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BIN_DIR}}/golangci-lint"
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf {{.BIN_DIR}}
+      - find . -name 'coverage.out' -delete

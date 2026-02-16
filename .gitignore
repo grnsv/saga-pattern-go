@@ -24,6 +24,10 @@ profile.cov
 go.work
 go.work.sum
 
+# Local tool binaries and task cache
+.bin/
+.task/
+
 # env file
 .env
 
