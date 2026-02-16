@@ -15,7 +15,10 @@ tasks:
     desc: Format code with goimports
     aliases: [format]
     cmds:
-      - go tool goimports -local github.com/grnsv/saga-pattern-go -w choreography/ orchestration/
+      - go tool goimports -local github.com/grnsv/saga-pattern-go -w {{.DIRS}}
+    vars:
+      DIRS:
+        sh: find . -maxdepth 1 -type d \( -name choreography -o -name orchestration \) -printf '%f/ '
 
   lint:
     desc: Run golangci-lint on all modules
