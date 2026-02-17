@@ -10,11 +10,6 @@ import (
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/events"
 )
 
-// EventPublisher is the interface for publishing events to Kafka.
-type EventPublisher interface {
-	Publish(ctx context.Context, topic, key string, event *events.Event) error
-}
-
 // Producer wraps a kafka.Writer for publishing events.
 type Producer struct {
 	writer *kafkago.Writer

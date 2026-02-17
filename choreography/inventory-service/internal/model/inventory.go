@@ -5,7 +5,6 @@ type ReservationStatus string
 
 const (
 	ReservationConfirmed ReservationStatus = "CONFIRMED"
-	ReservationFailed    ReservationStatus = "FAILED"
 )
 
 // InventoryReservation represents a reserved inventory item.

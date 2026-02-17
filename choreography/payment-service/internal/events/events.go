@@ -39,6 +39,8 @@ type PaymentResultPayload struct {
 	OrderID   string  `json:"orderId"`
 	PaymentID string  `json:"paymentId,omitempty"`
 	Amount    float64 `json:"amount"`
+	Item      string  `json:"item,omitempty"`
+	Qty       int     `json:"qty,omitempty"`
 	Reason    string  `json:"reason,omitempty"`
 }
 
