@@ -12,13 +12,12 @@ tasks:
       - task --list
 
   fmt:
-    desc: Format code with goimports
+    desc: Format code via golangci-lint fmt
     aliases: [format]
+    deps: [tools]
     cmds:
-      - go tool goimports -local github.com/grnsv/saga-pattern-go -w {{.DIRS}}
-    vars:
-      DIRS:
-        sh: find . -maxdepth 1 -type d \( -name choreography -o -name orchestration \) -printf '%f/ '
+      - for: { var: MODULES }
+        cmd: echo "=> fmt {{.ITEM}}" && cd "{{.ITEM}}" && "{{.BIN_DIR}}/golangci-lint" fmt ./...
 
   lint:
     desc: Run golangci-lint on all modules
@@ -43,7 +42,7 @@ tasks:
     desc: Build all services
     cmds:
       - for: { var: MODULES }
-        cmd: echo "=> build {{.ITEM}}" && cd "{{.ITEM}}" && CGO_ENABLED=0 go build ./cmd/...
+        cmd: echo "=> build {{.ITEM}}" && cd "{{.ITEM}}" && CGO_ENABLED=0 go build -o /dev/null ./cmd/...
 
   up:
     desc: Start choreography stack with Docker Compose
@@ -55,46 +54,49 @@ tasks:
     cmds:
       - docker compose down
 
-  orch:up:
-    desc: Start orchestration stack with Docker Compose
+  logs:
+    desc: Tail logs from all choreography services
     cmds:
-      - docker compose -f docker-compose.orchestration.yml up -d
+      - docker compose logs -f
 
-  orch:down:
-    desc: Stop orchestration stack
+  create-order:
+    desc: Create a test order via the order-service HTTP API
     cmds:
-      - docker compose -f docker-compose.orchestration.yml down
+      - curl -s -X POST http://localhost:8080/orders -d '{"item":"widget","qty":1}' | jq .
 
   smoke-test:
-    desc: Run choreography smoke tests
+    desc: Run choreography smoke test (starts stack, creates order, verifies saga completes)
+    cmds:
+      - task: up
+      - task: _smoke
+      - task: down
+
+  _smoke:
+    internal: true
     cmds:
       - |
+        echo "Waiting for order-service to be ready..."
+        for i in $(seq 1 24); do
+          curl -sf http://localhost:8080/healthz > /dev/null 2>&1 && break
+          echo "  attempt $i/24, retrying in 5s..."
+          sleep 5
+        done
         echo "Creating order..."
         RESP=$(curl -s -X POST http://localhost:8080/orders -d '{"item":"widget","qty":1}')
         ORDER_ID=$(echo "$RESP" | jq -r '.id')
-        echo "Order ID: $ORDER_ID"
+        echo "Created order: $ORDER_ID"
         echo "Waiting for saga to complete..."
-        sleep 5
-        curl -s "http://localhost:8080/orders/$ORDER_ID" | jq .
-
-  orch:smoke-test:
-    desc: Run orchestration smoke tests
-    cmds:
-      - |
-        echo "Creating order..."
-        RESP=$(curl -s -X POST http://localhost:8080/orders -d '{"item":"widget","qty":1}')
-        ORDER_ID=$(echo "$RESP" | jq -r '.id')
-        echo "Order ID: $ORDER_ID"
-        echo "Waiting for saga to complete..."
-        sleep 5
-        curl -s "http://localhost:8080/orders/$ORDER_ID" | jq .
-
-  check:
-    desc: Run all checks (fmt, lint, test)
-    cmds:
-      - task: fmt
-      - task: lint
-      - task: test
+        for i in $(seq 1 30); do
+          STATUS=$(curl -s "http://localhost:8080/orders/$ORDER_ID" | jq -r '.status')
+          if [ "$STATUS" = "CONFIRMED" ] || [ "$STATUS" = "CANCELLED" ]; then
+            echo "PASS: saga completed ($STATUS)"
+            exit 0
+          fi
+          echo "  attempt $i/30, status=$STATUS, retrying in 1s..."
+          sleep 1
+        done
+        echo "FAIL: saga did not complete within 30s (last status: $STATUS)"
+        exit 1
 
   tools:
     desc: Install development tools

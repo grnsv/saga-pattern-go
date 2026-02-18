@@ -2,10 +2,7 @@ module github.com/grnsv/saga-pattern-go
 
 go 1.26
 
-tool (
-	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-	golang.org/x/tools/cmd/goimports
-)
+tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect
@@ -206,7 +203,6 @@ require (
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
