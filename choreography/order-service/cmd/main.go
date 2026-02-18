@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/config"
+	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/events"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/handler"
+	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/store"
 )
 
@@ -25,7 +28,10 @@ func main() {
 	}
 
 	orderStore := store.NewInMemoryOrderStore()
-	httpHandler := handler.NewHTTPHandler(orderStore)
+	producer := kafka.NewProducer(cfg.KafkaBrokers)
+
+	httpHandler := handler.NewHTTPHandler(orderStore, producer)
+	sagaEventHandler := handler.NewSagaEventHandler(orderStore)
 
 	mux := http.NewServeMux()
 	httpHandler.RegisterRoutes(mux)
@@ -35,19 +41,67 @@ func main() {
 		Handler: mux,
 	}
 
+	paymentEventsConsumer := kafka.NewConsumer(
+		cfg.KafkaBrokers,
+		"payment-events",
+		"order-service",
+		map[events.EventType]kafka.EventHandler{
+			events.PaymentFailed:     sagaEventHandler.HandlePaymentFailed,
+			events.PaymentRolledBack: sagaEventHandler.HandlePaymentRolledBack,
+		},
+	)
+
+	inventoryEventsConsumer := kafka.NewConsumer(
+		cfg.KafkaBrokers,
+		"inventory-events",
+		"order-service",
+		map[events.EventType]kafka.EventHandler{
+			events.InventoryReserved: sagaEventHandler.HandleInventoryReserved,
+		},
+	)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
+		slog.Info("starting payment-events consumer")
+		if err := paymentEventsConsumer.Start(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("payment-events consumer error", "error", err)
+		}
+	})
+
+	wg.Go(func() {
+		slog.Info("starting inventory-events consumer")
+		if err := inventoryEventsConsumer.Start(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("inventory-events consumer error", "error", err)
+		}
+	})
 
 	go func() {
 		slog.Info("starting order-service", "port", cfg.HTTPPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("http server error", "error", err)
-			os.Exit(1)
+			stop()
 		}
 	}()
 
 	<-ctx.Done()
 	slog.Info("shutting down order-service")
+
+	if err := paymentEventsConsumer.Close(); err != nil {
+		slog.Error("failed to close payment-events consumer", "error", err)
+	}
+	if err := inventoryEventsConsumer.Close(); err != nil {
+		slog.Error("failed to close inventory-events consumer", "error", err)
+	}
+
+	wg.Wait()
+
+	if err := producer.Close(); err != nil {
+		slog.Error("failed to close producer", "error", err)
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

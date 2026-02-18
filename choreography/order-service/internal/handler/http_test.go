@@ -14,43 +14,8 @@ import (
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/model"
 )
 
-// mockOrderStore implements OrderStore for testing.
-type mockOrderStore struct {
-	orders    map[string]*model.Order
-	createErr error
-}
-
-func newMockStore() *mockOrderStore {
-	return &mockOrderStore{orders: make(map[string]*model.Order)}
-}
-
-func (m *mockOrderStore) Create(order *model.Order) (string, error) {
-	if m.createErr != nil {
-		return "", m.createErr
-	}
-	order.ID = "test-uuid"
-	m.orders[order.ID] = order
-	return order.ID, nil
-}
-
-func (m *mockOrderStore) Get(id string) (*model.Order, error) {
-	order, ok := m.orders[id]
-	if !ok {
-		return nil, errors.New("order not found")
-	}
-	return order, nil
-}
-
-func (m *mockOrderStore) Update(order *model.Order) error {
-	if _, ok := m.orders[order.ID]; !ok {
-		return errors.New("order not found")
-	}
-	m.orders[order.ID] = order
-	return nil
-}
-
 func newTestServer(s *mockOrderStore) *http.ServeMux {
-	h := NewHTTPHandler(s)
+	h := NewHTTPHandler(s, newMockProducer())
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return mux
@@ -82,6 +47,24 @@ func TestCreateOrder_StoreError(t *testing.T) {
 	s := newMockStore()
 	s.createErr = errors.New("rng failure")
 	mux := newTestServer(s)
+
+	body := `{"item":"widget","qty":1}`
+	req := httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestCreateOrder_PublishError(t *testing.T) {
+	s := newMockStore()
+	p := newMockProducer()
+	p.err = errors.New("kafka down")
+
+	h := NewHTTPHandler(s, p)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
 
 	body := `{"item":"widget","qty":1}`
 	req := httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader(body))
