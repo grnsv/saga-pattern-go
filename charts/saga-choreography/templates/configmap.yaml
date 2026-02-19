@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "saga-choreography.fullname" . }}-config
+  labels:
+    {{- include "saga-choreography.labels" . | nindent 4 }}
+data:
+  KAFKA_BROKERS: {{ include "saga-choreography.kafkaBrokers" . | quote }}

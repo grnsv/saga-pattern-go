@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "saga-choreography.fullname" . }}-order-service
+  labels:
+    {{- include "saga-choreography.labels" . | nindent 4 }}
+    app.kubernetes.io/name: order-service
+spec:
+  selector:
+    app.kubernetes.io/name: order-service
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.orderService.port }}
+  type: ClusterIP

@@ -110,6 +110,37 @@ tasks:
     generates:
       - "{{.BIN_DIR}}/golangci-lint"
 
+  minikube-start:
+    desc: Start Minikube cluster
+    cmds:
+      - minikube start
+
+  minikube-delete:
+    desc: Delete Minikube cluster
+    cmds:
+      - minikube delete
+
+  minikube-build:
+    desc: Build Docker images inside Minikube Docker daemon
+    cmds:
+      - |
+        eval $(minikube docker-env)
+        docker build -t order-service:latest     ./choreography/order-service
+        docker build -t payment-service:latest   ./choreography/payment-service
+        docker build -t inventory-service:latest ./choreography/inventory-service
+
+  minikube-up:
+    desc: Build images and install Helm chart in Minikube
+    cmds:
+      - task: minikube-start
+      - task: minikube-build
+      - helm upgrade --install saga-choreo ./charts/saga-choreography --namespace saga-pattern --create-namespace
+
+  minikube-down:
+    desc: Uninstall Helm chart from Minikube
+    cmds:
+      - helm uninstall saga-choreo --namespace saga-pattern
+
   clean:
     desc: Remove build artifacts
     cmds:

@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "saga-choreography.fullname" . }}-order-service
+  labels:
+    {{- include "saga-choreography.labels" . | nindent 4 }}
+    app.kubernetes.io/name: order-service
+spec:
+  replicas: {{ .Values.orderService.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: order-service
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: order-service
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      initContainers:
+        {{- include "saga-choreography.kafkaWaitTopicsContainer" . | nindent 8 }}
+      containers:
+        - name: order-service
+          image: "{{ .Values.orderService.image }}:{{ .Values.orderService.tag }}"
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: {{ .Values.orderService.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "saga-choreography.fullname" . }}-config
+          env:
+            - name: HTTP_PORT
+              value: {{ .Values.orderService.port | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.orderService.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
