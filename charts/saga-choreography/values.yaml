@@ -55,3 +55,15 @@ inventoryService:
     limits:
       cpu: 200m
       memory: 128Mi
+
+jaeger:
+  image: jaegertracing/all-in-one
+  tag: "1.76.0"
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi

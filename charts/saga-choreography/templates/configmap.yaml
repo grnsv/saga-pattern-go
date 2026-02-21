@@ -6,3 +6,4 @@ metadata:
     {{- include "saga-choreography.labels" . | nindent 4 }}
 data:
   KAFKA_BROKERS: {{ include "saga-choreography.kafkaBrokers" . | quote }}
+  OTEL_ENDPOINT: {{ include "saga-choreography.jaegerOTLPEndpoint" . | quote }}

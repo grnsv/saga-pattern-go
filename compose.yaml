@@ -35,34 +35,51 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic inventory-events --partitions 1 --replication-factor 1
       "
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+
   order-service:
     build:
       context: ./choreography/order-service
     environment:
       - KAFKA_BROKERS=kafka:9092
+      - OTEL_ENDPOINT=jaeger:4317
     ports:
       - "8080:8080"
     restart: on-failure
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+      jaeger:
+        condition: service_started
 
   payment-service:
     build:
       context: ./choreography/payment-service
     environment:
       - KAFKA_BROKERS=kafka:9092
+      - OTEL_ENDPOINT=jaeger:4317
     restart: on-failure
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+      jaeger:
+        condition: service_started
 
   inventory-service:
     build:
       context: ./choreography/inventory-service
     environment:
       - KAFKA_BROKERS=kafka:9092
+      - OTEL_ENDPOINT=jaeger:4317
     restart: on-failure
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+      jaeger:
+        condition: service_started

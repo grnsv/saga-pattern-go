@@ -10,11 +10,14 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/config"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/events"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/handler"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/store"
+	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/telemetry"
 )
 
 func main() {
@@ -27,6 +30,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	shutdownTracing, err := telemetry.Setup(ctx, "order-service", cfg.OTELEndpoint)
+	if err != nil {
+		stop()
+		slog.Error("failed to setup tracing", "error", err)
+		os.Exit(1)
+	}
+	defer stop()
+
 	orderStore := store.NewInMemoryOrderStore()
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 
@@ -38,7 +50,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.HTTPPort,
-		Handler: mux,
+		Handler: otelhttp.NewHandler(mux, "order-service"),
 	}
 
 	paymentEventsConsumer := kafka.NewConsumer(
@@ -59,9 +71,6 @@ func main() {
 			events.InventoryReserved: sagaEventHandler.HandleInventoryReserved,
 		},
 	)
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	var wg sync.WaitGroup
 
@@ -108,6 +117,12 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("http server shutdown error", "error", err)
+	}
+
+	tracingCtx, tracingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer tracingCancel()
+	if err := shutdownTracing(tracingCtx); err != nil {
+		slog.Error("tracing shutdown error", "error", err)
 	}
 
 	slog.Info("order-service stopped")

@@ -47,7 +47,7 @@ tasks:
   up:
     desc: Start choreography stack with Docker Compose
     cmds:
-      - docker compose up -d
+      - docker compose up -d --build
 
   down:
     desc: Stop choreography stack
@@ -113,7 +113,7 @@ tasks:
   minikube-start:
     desc: Start Minikube cluster
     cmds:
-      - minikube start
+      - minikube start --driver=docker --extra-config=kubelet.cgroup-driver=systemd
 
   minikube-delete:
     desc: Delete Minikube cluster
@@ -140,6 +140,16 @@ tasks:
     desc: Uninstall Helm chart from Minikube
     cmds:
       - helm uninstall saga-choreo --namespace saga-pattern
+
+  minikube-jaeger:
+    desc: Port-forward Jaeger UI to http://localhost:16686
+    cmds:
+      - kubectl port-forward -n saga-pattern svc/saga-choreo-jaeger 16686:16686
+
+  minikube-order:
+    desc: Port-forward order-service API to http://localhost:8080
+    cmds:
+      - kubectl port-forward -n saga-pattern svc/saga-choreo-order-service 8080:80
 
   clean:
     desc: Remove build artifacts

@@ -15,6 +15,7 @@ import (
 	"github.com/grnsv/saga-pattern-go/choreography/inventory-service/internal/handler"
 	"github.com/grnsv/saga-pattern-go/choreography/inventory-service/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/choreography/inventory-service/internal/store"
+	"github.com/grnsv/saga-pattern-go/choreography/inventory-service/internal/telemetry"
 )
 
 func main() {
@@ -26,6 +27,15 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	shutdownTracing, err := telemetry.Setup(ctx, "inventory-service", cfg.OTELEndpoint)
+	if err != nil {
+		stop()
+		slog.Error("failed to setup tracing", "error", err)
+		os.Exit(1)
+	}
+	defer stop()
 
 	inventoryStore := store.NewInMemoryInventoryStore()
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
@@ -49,9 +59,6 @@ func main() {
 			events.PaymentReserved: paymentReservedHandler.Handle,
 		},
 	)
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	var wg sync.WaitGroup
 
@@ -88,6 +95,12 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("http server shutdown error", "error", err)
+	}
+
+	tracingCtx, tracingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer tracingCancel()
+	if err := shutdownTracing(tracingCtx); err != nil {
+		slog.Error("tracing shutdown error", "error", err)
 	}
 
 	slog.Info("inventory-service stopped")

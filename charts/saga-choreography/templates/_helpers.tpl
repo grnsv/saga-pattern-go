@@ -26,6 +26,13 @@ Kafka broker address: use the override value or derive from the Kafka service na
 {{- end }}
 
 {{/*
+Jaeger OTLP gRPC endpoint (ClusterIP service port 4317).
+*/}}
+{{- define "saga-choreography.jaegerOTLPEndpoint" -}}
+{{- printf "%s-jaeger:4317" (include "saga-choreography.fullname" .) -}}
+{{- end }}
+
+{{/*
 initContainer that waits until all three saga topics exist.
 Topic creation is handled by the kafka-init Job (helm post-install/post-upgrade hook).
 */}}

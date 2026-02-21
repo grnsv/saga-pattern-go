@@ -6,6 +6,11 @@ import (
 	"log/slog"
 
 	kafkago "github.com/segmentio/kafka-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/events"
 )
@@ -18,6 +23,7 @@ type Consumer struct {
 	reader   *kafkago.Reader
 	topic    string
 	handlers map[events.EventType]EventHandler
+	tracer   trace.Tracer
 }
 
 // NewConsumer creates a new Kafka consumer with event-type routing.
@@ -30,6 +36,7 @@ func NewConsumer(brokers []string, topic, groupID string, handlers map[events.Ev
 		}),
 		topic:    topic,
 		handlers: handlers,
+		tracer:   otel.Tracer("kafka.consumer"),
 	}
 }
 
@@ -52,6 +59,10 @@ func (c *Consumer) Start(ctx context.Context) error {
 			continue
 		}
 
+		// Extract propagated trace context from Kafka headers.
+		carrier := HeadersCarrier{Headers: &msg.Headers}
+		msgCtx := otel.GetTextMapPropagator().Extract(ctx, carrier)
+
 		handler, ok := c.handlers[event.Type]
 		if !ok {
 			slog.Warn("unknown event type", "topic", c.topic, "type", event.Type)
@@ -59,7 +70,19 @@ func (c *Consumer) Start(ctx context.Context) error {
 			continue
 		}
 
-		if err := handler(ctx, &event); err != nil {
+		msgCtx, span := c.tracer.Start(msgCtx, c.topic+" process",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				semconv.MessagingSystemKafka,
+				semconv.MessagingDestinationName(c.topic),
+				attribute.String("messaging.event_type", string(event.Type)),
+				attribute.String("messaging.correlation_id", event.CorrelationID),
+			),
+		)
+
+		if err := handler(msgCtx, &event); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			slog.Error("failed to handle event",
 				"topic", c.topic,
 				"type", event.Type,
@@ -67,15 +90,15 @@ func (c *Consumer) Start(ctx context.Context) error {
 				"error", err,
 			)
 			// TODO: retry + DLQ
-			c.commit(ctx, &msg)
-			continue
+		} else {
+			slog.Debug("event handled",
+				"topic", c.topic,
+				"type", event.Type,
+				"correlationId", event.CorrelationID,
+			)
 		}
 
-		slog.Debug("event handled",
-			"topic", c.topic,
-			"type", event.Type,
-			"correlationId", event.CorrelationID,
-		)
+		span.End()
 		c.commit(ctx, &msg)
 	}
 }
