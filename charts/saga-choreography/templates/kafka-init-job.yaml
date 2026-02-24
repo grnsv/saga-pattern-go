@@ -33,9 +33,15 @@ spec:
               done
               echo "Kafka ready. Creating topics..."
               /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BROKER" \
-                --create --if-not-exists --topic order-events     --partitions 1 --replication-factor 1
+                --create --if-not-exists --topic order-events         --partitions 1 --replication-factor 1
               /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BROKER" \
-                --create --if-not-exists --topic payment-events   --partitions 1 --replication-factor 1
+                --create --if-not-exists --topic payment-events       --partitions 1 --replication-factor 1
               /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BROKER" \
-                --create --if-not-exists --topic inventory-events --partitions 1 --replication-factor 1
+                --create --if-not-exists --topic inventory-events     --partitions 1 --replication-factor 1
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BROKER" \
+                --create --if-not-exists --topic order-events.dlq     --partitions 1 --replication-factor 1
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BROKER" \
+                --create --if-not-exists --topic payment-events.dlq   --partitions 1 --replication-factor 1
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BROKER" \
+                --create --if-not-exists --topic inventory-events.dlq --partitions 1 --replication-factor 1
               echo "All topics ready."
