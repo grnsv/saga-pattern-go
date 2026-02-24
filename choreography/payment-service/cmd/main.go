@@ -31,8 +31,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	shutdownTracing, err := telemetry.Setup(ctx, "payment-service", cfg.OTELEndpoint)
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to setup tracing", "error", err)
 		stop()
-		slog.Error("failed to setup tracing", "error", err)
 		os.Exit(1)
 	}
 	defer stop()
@@ -73,55 +73,55 @@ func main() {
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
-		slog.Info("starting order-events consumer")
+		slog.InfoContext(ctx, "starting order-events consumer")
 		if err := orderEventsConsumer.Start(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("order-events consumer error", "error", err)
+			slog.ErrorContext(ctx, "order-events consumer error", "error", err)
 		}
 	})
 
 	wg.Go(func() {
-		slog.Info("starting inventory-events consumer")
+		slog.InfoContext(ctx, "starting inventory-events consumer")
 		if err := inventoryEventsConsumer.Start(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("inventory-events consumer error", "error", err)
+			slog.ErrorContext(ctx, "inventory-events consumer error", "error", err)
 		}
 	})
 
 	go func() {
-		slog.Info("starting payment-service", "port", cfg.HTTPPort)
+		slog.InfoContext(ctx, "starting payment-service", "port", cfg.HTTPPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("http server error", "error", err)
+			slog.ErrorContext(ctx, "http server error", "error", err)
 			stop()
 		}
 	}()
 
 	<-ctx.Done()
-	slog.Info("shutting down payment-service")
+	slog.InfoContext(ctx, "shutting down payment-service")
 
 	if err := orderEventsConsumer.Close(); err != nil {
-		slog.Error("failed to close order-events consumer", "error", err)
+		slog.ErrorContext(ctx, "failed to close order-events consumer", "error", err)
 	}
 	if err := inventoryEventsConsumer.Close(); err != nil {
-		slog.Error("failed to close inventory-events consumer", "error", err)
+		slog.ErrorContext(ctx, "failed to close inventory-events consumer", "error", err)
 	}
 
 	wg.Wait()
 
 	if err := producer.Close(); err != nil {
-		slog.Error("failed to close producer", "error", err)
+		slog.ErrorContext(ctx, "failed to close producer", "error", err)
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("http server shutdown error", "error", err)
+		slog.ErrorContext(shutdownCtx, "http server shutdown error", "error", err)
 	}
 
 	tracingCtx, tracingCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer tracingCancel()
 	if err := shutdownTracing(tracingCtx); err != nil {
-		slog.Error("tracing shutdown error", "error", err)
+		slog.ErrorContext(tracingCtx, "tracing shutdown error", "error", err)
 	}
 
-	slog.Info("payment-service stopped")
+	slog.InfoContext(ctx, "payment-service stopped")
 }

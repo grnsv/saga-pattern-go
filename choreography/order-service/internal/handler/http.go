@@ -72,23 +72,23 @@ func (h *HTTPHandler) createOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := h.store.Create(order); err != nil {
-		slog.Error("failed to create order", "error", err)
+		slog.ErrorContext(r.Context(), "failed to create order", "error", err)
 		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 
 	if err := h.publishOrderCreated(r.Context(), order); err != nil {
-		slog.Error("failed to publish OrderCreated", "orderId", order.ID, "error", err)
+		slog.ErrorContext(r.Context(), "failed to publish OrderCreated", "orderId", order.ID, "error", err)
 		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 
-	slog.Info("order created", "orderId", order.ID, "item", order.Item, "qty", order.Qty, "amount", order.Amount)
+	slog.InfoContext(r.Context(), "order created", "orderId", order.ID, "item", order.Item, "qty", order.Qty, "amount", order.Amount)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(order); err != nil {
-		slog.Error("failed to encode response", "error", err)
+		slog.ErrorContext(r.Context(), "failed to encode response", "error", err)
 	}
 }
 
@@ -124,7 +124,7 @@ func (h *HTTPHandler) getOrder(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(order); err != nil {
-		slog.Error("failed to encode response", "error", err)
+		slog.ErrorContext(r.Context(), "failed to encode response", "error", err)
 	}
 }
 

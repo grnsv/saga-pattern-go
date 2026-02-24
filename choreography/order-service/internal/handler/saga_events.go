@@ -27,7 +27,7 @@ func (h *SagaEventHandler) HandleInventoryReserved(ctx context.Context, event *e
 		return fmt.Errorf("unmarshal InventoryReserved payload: %w", err)
 	}
 
-	slog.Info("processing InventoryReserved",
+	slog.InfoContext(ctx, "processing InventoryReserved",
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 	)
@@ -42,7 +42,7 @@ func (h *SagaEventHandler) HandlePaymentFailed(ctx context.Context, event *event
 		return fmt.Errorf("unmarshal PaymentFailed payload: %w", err)
 	}
 
-	slog.Info("processing PaymentFailed",
+	slog.InfoContext(ctx, "processing PaymentFailed",
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 		"reason", payload.Reason,
@@ -58,7 +58,7 @@ func (h *SagaEventHandler) HandlePaymentRolledBack(ctx context.Context, event *e
 		return fmt.Errorf("unmarshal PaymentRolledBack payload: %w", err)
 	}
 
-	slog.Info("processing PaymentRolledBack",
+	slog.InfoContext(ctx, "processing PaymentRolledBack",
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 		"reason", payload.Reason,
@@ -67,7 +67,7 @@ func (h *SagaEventHandler) HandlePaymentRolledBack(ctx context.Context, event *e
 	return h.updateOrderStatus(ctx, payload.OrderID, model.OrderCancelled, event.CorrelationID)
 }
 
-func (h *SagaEventHandler) updateOrderStatus(_ context.Context, orderID string, status model.OrderStatus, correlationID string) error {
+func (h *SagaEventHandler) updateOrderStatus(ctx context.Context, orderID string, status model.OrderStatus, correlationID string) error {
 	order, err := h.store.Get(orderID)
 	if err != nil {
 		return fmt.Errorf("get order %s: %w", orderID, err)
@@ -79,7 +79,7 @@ func (h *SagaEventHandler) updateOrderStatus(_ context.Context, orderID string, 
 		return fmt.Errorf("update order %s: %w", orderID, err)
 	}
 
-	slog.Info("order status updated",
+	slog.InfoContext(ctx, "order status updated",
 		"correlationId", correlationID,
 		"orderId", orderID,
 		"status", status,

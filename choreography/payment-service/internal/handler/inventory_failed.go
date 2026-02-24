@@ -34,7 +34,7 @@ func (h *InventoryFailedHandler) Handle(ctx context.Context, event *events.Event
 		return fmt.Errorf("unmarshal InventoryFailed payload: %w", err)
 	}
 
-	slog.Info("processing InventoryFailed",
+	slog.InfoContext(ctx, "processing InventoryFailed",
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 		"reason", payload.Reason,
@@ -71,7 +71,7 @@ func (h *InventoryFailedHandler) Handle(ctx context.Context, event *events.Event
 		return fmt.Errorf("publish PaymentRolledBack: %w", err)
 	}
 
-	slog.Info("payment rolled back",
+	slog.InfoContext(ctx, "payment rolled back",
 		"correlationId", event.CorrelationID,
 		"paymentId", payment.ID,
 		"orderId", payload.OrderID,

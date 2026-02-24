@@ -68,7 +68,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			slog.Error("failed to fetch message", "topic", c.topic, "error", err)
+			slog.ErrorContext(ctx, "failed to fetch message", "topic", c.topic, "error", err)
 			continue
 		}
 
@@ -81,7 +81,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 func (c *Consumer) processMessage(ctx context.Context, msg *kafkago.Message) error {
 	var event events.Event
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
-		slog.Error("failed to unmarshal event", "topic", c.topic, "error", err)
+		slog.ErrorContext(ctx, "failed to unmarshal event", "topic", c.topic, "error", err)
 		c.commit(ctx, msg)
 		return nil
 	}
@@ -92,7 +92,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg *kafkago.Message) err
 
 	handler, ok := c.handlers[event.Type]
 	if !ok {
-		slog.Warn("unknown event type", "topic", c.topic, "type", event.Type)
+		slog.WarnContext(ctx, "unknown event type", "topic", c.topic, "type", event.Type)
 		c.commit(ctx, msg)
 		return nil
 	}
@@ -115,7 +115,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg *kafkago.Message) err
 		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		slog.Error("event handler failed after retries",
+		slog.ErrorContext(msgCtx, "event handler failed after retries",
 			"topic", c.topic,
 			"type", event.Type,
 			"correlationId", event.CorrelationID,
@@ -123,7 +123,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg *kafkago.Message) err
 			"error", err,
 		)
 		if dlqErr := c.sendToDLQ(msgCtx, msg, err, retries); dlqErr != nil {
-			slog.Error("DLQ unavailable, offset not committed - will retry on restart",
+			slog.ErrorContext(msgCtx, "DLQ unavailable, offset not committed - will retry on restart",
 				"topic", c.topic,
 				"correlationId", string(msg.Key),
 				"error", dlqErr,
@@ -132,7 +132,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg *kafkago.Message) err
 		}
 	} else {
 		span.SetStatus(codes.Ok, "")
-		slog.Debug("event handled",
+		slog.DebugContext(msgCtx, "event handled",
 			"topic", c.topic,
 			"type", event.Type,
 			"correlationId", event.CorrelationID,
@@ -152,7 +152,7 @@ func (c *Consumer) processWithRetry(ctx context.Context, event *events.Event, ha
 
 	for retry := 1; retry <= maxRetries; retry++ {
 		if !c.consumeBudget() {
-			slog.Warn("retry budget exhausted, skipping retries",
+			slog.WarnContext(ctx, "retry budget exhausted, skipping retries",
 				"topic", c.topic,
 				"type", event.Type,
 				"correlationId", event.CorrelationID,
@@ -163,7 +163,7 @@ func (c *Consumer) processWithRetry(ctx context.Context, event *events.Event, ha
 
 		delay := baseDelay * (1 << (retry - 1))
 		jitter := time.Duration(rand.Int64N(max(int64(delay)/2, 1)))
-		slog.Warn("retrying event handler",
+		slog.WarnContext(ctx, "retrying event handler",
 			"topic", c.topic,
 			"type", event.Type,
 			"correlationId", event.CorrelationID,
@@ -242,10 +242,10 @@ func (c *Consumer) sendToDLQ(ctx context.Context, msg *kafkago.Message, handlerE
 		Value:   msg.Value,
 		Headers: headers,
 	}); err != nil {
-		slog.Error("failed to write to DLQ", "dlq", dlqTopic, "correlationId", string(msg.Key), "error", err)
+		slog.ErrorContext(ctx, "failed to write to DLQ", "dlq", dlqTopic, "correlationId", string(msg.Key), "error", err)
 		return err
 	}
-	slog.Warn("message sent to DLQ",
+	slog.WarnContext(ctx, "message sent to DLQ",
 		"dlq", dlqTopic,
 		"originalTopic", c.topic,
 		"correlationId", string(msg.Key),
@@ -256,7 +256,7 @@ func (c *Consumer) sendToDLQ(ctx context.Context, msg *kafkago.Message, handlerE
 
 func (c *Consumer) commit(ctx context.Context, msg *kafkago.Message) {
 	if err := c.reader.CommitMessages(ctx, *msg); err != nil {
-		slog.Error("failed to commit message", "topic", c.topic, "error", err)
+		slog.ErrorContext(ctx, "failed to commit message", "topic", c.topic, "error", err)
 	}
 }
 

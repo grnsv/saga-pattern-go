@@ -47,7 +47,7 @@ func (h *PaymentReservedHandler) Handle(ctx context.Context, event *events.Event
 		return fmt.Errorf("unmarshal PaymentReserved payload: %w", err)
 	}
 
-	slog.Info("processing PaymentReserved",
+	slog.InfoContext(ctx, "processing PaymentReserved",
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 	)
@@ -94,7 +94,7 @@ func (h *PaymentReservedHandler) publishInventoryReserved(ctx context.Context, e
 		return fmt.Errorf("publish InventoryReserved: %w", err)
 	}
 
-	slog.Info("inventory reserved",
+	slog.InfoContext(ctx, "inventory reserved",
 		"correlationId", event.CorrelationID,
 		"reservationId", id,
 		"orderId", payload.OrderID,
@@ -126,7 +126,7 @@ func (h *PaymentReservedHandler) publishInventoryFailed(ctx context.Context, eve
 		return fmt.Errorf("publish InventoryFailed: %w", err)
 	}
 
-	slog.Info("inventory reservation failed",
+	slog.InfoContext(ctx, "inventory reservation failed",
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 		"reason", "insufficient inventory",

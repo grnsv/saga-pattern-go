@@ -50,7 +50,7 @@ func (h *OrderCreatedHandler) Handle(ctx context.Context, event *events.Event) e
 		return fmt.Errorf("unmarshal OrderCreated payload: %w", err)
 	}
 
-	slog.Info("processing OrderCreated",
+	slog.InfoContext(ctx, "processing OrderCreated",
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 		"amount", payload.Amount,
@@ -98,7 +98,7 @@ func (h *OrderCreatedHandler) publishPaymentReserved(ctx context.Context, event 
 		return fmt.Errorf("publish PaymentReserved: %w", err)
 	}
 
-	slog.Info("payment reserved",
+	slog.InfoContext(ctx, "payment reserved",
 		"correlationId", event.CorrelationID,
 		"paymentId", id,
 		"orderId", payload.OrderID,
@@ -131,7 +131,7 @@ func (h *OrderCreatedHandler) publishPaymentFailed(ctx context.Context, event *e
 		return fmt.Errorf("publish PaymentFailed: %w", err)
 	}
 
-	slog.Info("payment failed",
+	slog.InfoContext(ctx, "payment failed",
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 		"reason", "payment declined",
