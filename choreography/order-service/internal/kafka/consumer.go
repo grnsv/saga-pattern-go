@@ -161,14 +161,14 @@ func (c *Consumer) processWithRetry(ctx context.Context, event *events.Event, ha
 			return retry - 1, err
 		}
 
-		delay := baseDelay * (1 << (retry - 1))
-		jitter := time.Duration(rand.Int64N(max(int64(delay)/2, 1)))
+		backoff := baseDelay * (1 << (retry - 1))
+		jitter := time.Duration(rand.Int64N(int64(backoff) / 2))
 		slog.WarnContext(ctx, "retrying event handler",
 			"topic", c.topic,
 			"type", event.Type,
 			"correlationId", event.CorrelationID,
 			"retry", retry,
-			"delay", delay+jitter,
+			"delay", backoff+jitter,
 			"error", err,
 		)
 		trace.SpanFromContext(ctx).AddEvent("retry",
@@ -177,13 +177,12 @@ func (c *Consumer) processWithRetry(ctx context.Context, event *events.Event, ha
 				attribute.String("error", err.Error()),
 			),
 		)
-		t := time.NewTimer(delay + jitter)
+		t := time.NewTimer(backoff + jitter)
+
 		select {
 		case <-t.C:
 		case <-ctx.Done():
-			if !t.Stop() {
-				<-t.C
-			}
+			t.Stop()
 			return retry, ctx.Err()
 		}
 
