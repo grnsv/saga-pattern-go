@@ -37,28 +37,22 @@ func (h *SagaEventHandler) HandleInventoryReserved(ctx context.Context, event *e
 
 // HandlePaymentFailed processes PaymentFailed events, marking the order as CANCELLED.
 func (h *SagaEventHandler) HandlePaymentFailed(ctx context.Context, event *events.Event) error {
-	var payload events.PaymentResultPayload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("unmarshal PaymentFailed payload: %w", err)
-	}
-
-	slog.InfoContext(ctx, "processing PaymentFailed",
-		"correlationId", event.CorrelationID,
-		"orderId", payload.OrderID,
-		"reason", payload.Reason,
-	)
-
-	return h.updateOrderStatus(ctx, payload.OrderID, model.OrderCancelled, event.CorrelationID)
+	return h.handlePaymentCancellation(ctx, event, "PaymentFailed")
 }
 
 // HandlePaymentRolledBack processes PaymentRolledBack events, marking the order as CANCELLED.
 func (h *SagaEventHandler) HandlePaymentRolledBack(ctx context.Context, event *events.Event) error {
+	return h.handlePaymentCancellation(ctx, event, "PaymentRolledBack")
+}
+
+func (h *SagaEventHandler) handlePaymentCancellation(ctx context.Context, event *events.Event, eventName string) error {
 	var payload events.PaymentResultPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("unmarshal PaymentRolledBack payload: %w", err)
+		return fmt.Errorf("unmarshal %s payload: %w", eventName, err)
 	}
 
-	slog.InfoContext(ctx, "processing PaymentRolledBack",
+	slog.InfoContext(ctx, "processing payment cancellation",
+		"event", eventName,
 		"correlationId", event.CorrelationID,
 		"orderId", payload.OrderID,
 		"reason", payload.Reason,

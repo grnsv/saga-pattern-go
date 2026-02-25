@@ -15,6 +15,7 @@ import (
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/config"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/events"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/handler"
+	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/idempotency"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/store"
 	"github.com/grnsv/saga-pattern-go/choreography/order-service/internal/telemetry"
@@ -41,6 +42,7 @@ func main() {
 
 	orderStore := store.NewInMemoryOrderStore()
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
+	dedup := idempotency.NewDeduplicator(cfg.DeduplicationTTL)
 
 	httpHandler := handler.NewHTTPHandler(orderStore, producer)
 	sagaEventHandler := handler.NewSagaEventHandler(orderStore)
@@ -58,8 +60,8 @@ func main() {
 		"payment-events",
 		"order-service",
 		map[events.EventType]kafka.EventHandler{
-			events.PaymentFailed:     sagaEventHandler.HandlePaymentFailed,
-			events.PaymentRolledBack: sagaEventHandler.HandlePaymentRolledBack,
+			events.PaymentFailed:     dedup.Wrap(sagaEventHandler.HandlePaymentFailed),
+			events.PaymentRolledBack: dedup.Wrap(sagaEventHandler.HandlePaymentRolledBack),
 		},
 	)
 
@@ -68,7 +70,7 @@ func main() {
 		"inventory-events",
 		"order-service",
 		map[events.EventType]kafka.EventHandler{
-			events.InventoryReserved: sagaEventHandler.HandleInventoryReserved,
+			events.InventoryReserved: dedup.Wrap(sagaEventHandler.HandleInventoryReserved),
 		},
 	)
 

@@ -13,6 +13,7 @@ import (
 	"github.com/grnsv/saga-pattern-go/choreography/payment-service/internal/config"
 	"github.com/grnsv/saga-pattern-go/choreography/payment-service/internal/events"
 	"github.com/grnsv/saga-pattern-go/choreography/payment-service/internal/handler"
+	"github.com/grnsv/saga-pattern-go/choreography/payment-service/internal/idempotency"
 	"github.com/grnsv/saga-pattern-go/choreography/payment-service/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/choreography/payment-service/internal/store"
 	"github.com/grnsv/saga-pattern-go/choreography/payment-service/internal/telemetry"
@@ -39,6 +40,7 @@ func main() {
 
 	paymentStore := store.NewInMemoryPaymentStore()
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
+	dedup := idempotency.NewDeduplicator(cfg.DeduplicationTTL)
 
 	orderCreatedHandler := handler.NewOrderCreatedHandler(paymentStore, producer, cfg.SuccessRate)
 	inventoryFailedHandler := handler.NewInventoryFailedHandler(paymentStore, producer)
@@ -57,7 +59,7 @@ func main() {
 		"order-events",
 		"payment-service",
 		map[events.EventType]kafka.EventHandler{
-			events.OrderCreated: orderCreatedHandler.Handle,
+			events.OrderCreated: dedup.Wrap(orderCreatedHandler.Handle),
 		},
 	)
 
@@ -66,7 +68,7 @@ func main() {
 		"inventory-events",
 		"payment-service",
 		map[events.EventType]kafka.EventHandler{
-			events.InventoryFailed: inventoryFailedHandler.Handle,
+			events.InventoryFailed: dedup.Wrap(inventoryFailedHandler.Handle),
 		},
 	)
 
