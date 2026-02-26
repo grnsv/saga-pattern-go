@@ -29,14 +29,16 @@ type PaymentReservedHandler struct {
 	store       InventoryStore
 	producer    EventPublisher
 	successRate float64
+	chaosMode   bool
 }
 
 // NewPaymentReservedHandler creates a new PaymentReserved event handler.
-func NewPaymentReservedHandler(store InventoryStore, producer EventPublisher, successRate float64) *PaymentReservedHandler {
+func NewPaymentReservedHandler(store InventoryStore, producer EventPublisher, successRate float64, chaosMode bool) *PaymentReservedHandler {
 	return &PaymentReservedHandler{
 		store:       store,
 		producer:    producer,
 		successRate: successRate,
+		chaosMode:   chaosMode,
 	}
 }
 
@@ -52,7 +54,7 @@ func (h *PaymentReservedHandler) Handle(ctx context.Context, event *events.Event
 		"orderId", payload.OrderID,
 	)
 
-	if rand.Float64() >= h.successRate {
+	if h.chaosMode || rand.Float64() >= h.successRate {
 		return h.publishInventoryFailed(ctx, event, &payload)
 	}
 

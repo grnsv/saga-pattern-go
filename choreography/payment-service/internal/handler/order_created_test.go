@@ -32,7 +32,7 @@ func makeOrderCreatedEvent(orderID string, amount float64) *events.Event {
 func TestOrderCreatedHandler_Success(t *testing.T) {
 	store := newMockPaymentStore()
 	producer := newMockProducer()
-	h := NewOrderCreatedHandler(store, producer, 1.0)
+	h := NewOrderCreatedHandler(store, producer, 1.0, false)
 
 	event := makeOrderCreatedEvent("order-1", 9.99)
 	err := h.Handle(context.Background(), event)
@@ -62,7 +62,7 @@ func TestOrderCreatedHandler_Success(t *testing.T) {
 func TestOrderCreatedHandler_Failure(t *testing.T) {
 	store := newMockPaymentStore()
 	producer := newMockProducer()
-	h := NewOrderCreatedHandler(store, producer, 0.0)
+	h := NewOrderCreatedHandler(store, producer, 0.0, false)
 
 	event := makeOrderCreatedEvent("order-2", 19.98)
 	err := h.Handle(context.Background(), event)
@@ -81,11 +81,33 @@ func TestOrderCreatedHandler_Failure(t *testing.T) {
 	assert.Equal(t, "payment declined", resultPayload.Reason)
 }
 
+func TestOrderCreatedHandler_ChaosMode(t *testing.T) {
+	store := newMockPaymentStore()
+	producer := newMockProducer()
+	h := NewOrderCreatedHandler(store, producer, 1.0, true)
+
+	event := makeOrderCreatedEvent("order-3", 9.99)
+	err := h.Handle(context.Background(), event)
+	require.NoError(t, err)
+
+	assert.Empty(t, store.payments)
+
+	require.Len(t, producer.published, 1)
+	assert.Equal(t, "payment-events", producer.published[0].topic)
+	assert.Equal(t, events.PaymentFailed, producer.published[0].event.Type)
+
+	var resultPayload events.PaymentResultPayload
+	err = json.Unmarshal(producer.published[0].event.Payload, &resultPayload)
+	require.NoError(t, err)
+	assert.Equal(t, "order-3", resultPayload.OrderID)
+	assert.Equal(t, "payment declined", resultPayload.Reason)
+}
+
 func TestOrderCreatedHandler_StoreError(t *testing.T) {
 	store := newMockPaymentStore()
 	store.createErr = errors.New("store failure")
 	producer := newMockProducer()
-	h := NewOrderCreatedHandler(store, producer, 1.0)
+	h := NewOrderCreatedHandler(store, producer, 1.0, false)
 
 	event := makeOrderCreatedEvent("order-1", 9.99)
 	err := h.Handle(context.Background(), event)
@@ -97,7 +119,7 @@ func TestOrderCreatedHandler_PublishError(t *testing.T) {
 	store := newMockPaymentStore()
 	producer := newMockProducer()
 	producer.err = errors.New("kafka down")
-	h := NewOrderCreatedHandler(store, producer, 1.0)
+	h := NewOrderCreatedHandler(store, producer, 1.0, false)
 
 	event := makeOrderCreatedEvent("order-1", 9.99)
 	err := h.Handle(context.Background(), event)

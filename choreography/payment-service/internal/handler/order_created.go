@@ -32,14 +32,16 @@ type OrderCreatedHandler struct {
 	store       PaymentStore
 	producer    EventPublisher
 	successRate float64
+	chaosMode   bool
 }
 
 // NewOrderCreatedHandler creates a new OrderCreated event handler.
-func NewOrderCreatedHandler(store PaymentStore, producer EventPublisher, successRate float64) *OrderCreatedHandler {
+func NewOrderCreatedHandler(store PaymentStore, producer EventPublisher, successRate float64, chaosMode bool) *OrderCreatedHandler {
 	return &OrderCreatedHandler{
 		store:       store,
 		producer:    producer,
 		successRate: successRate,
+		chaosMode:   chaosMode,
 	}
 }
 
@@ -56,7 +58,7 @@ func (h *OrderCreatedHandler) Handle(ctx context.Context, event *events.Event) e
 		"amount", payload.Amount,
 	)
 
-	if rand.Float64() >= h.successRate {
+	if h.chaosMode || rand.Float64() >= h.successRate {
 		return h.publishPaymentFailed(ctx, event, payload)
 	}
 

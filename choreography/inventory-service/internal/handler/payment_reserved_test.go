@@ -33,7 +33,7 @@ func makePaymentReservedEvent(orderID string, amount float64) *events.Event {
 func TestPaymentReservedHandler_Success(t *testing.T) {
 	store := newMockInventoryStore()
 	producer := newMockProducer()
-	h := NewPaymentReservedHandler(store, producer, 1.0)
+	h := NewPaymentReservedHandler(store, producer, 1.0, false)
 
 	event := makePaymentReservedEvent("order-1", 9.99)
 	err := h.Handle(context.Background(), event)
@@ -61,7 +61,7 @@ func TestPaymentReservedHandler_Success(t *testing.T) {
 func TestPaymentReservedHandler_Failure(t *testing.T) {
 	store := newMockInventoryStore()
 	producer := newMockProducer()
-	h := NewPaymentReservedHandler(store, producer, 0.0)
+	h := NewPaymentReservedHandler(store, producer, 0.0, false)
 
 	event := makePaymentReservedEvent("order-2", 19.98)
 	err := h.Handle(context.Background(), event)
@@ -80,11 +80,33 @@ func TestPaymentReservedHandler_Failure(t *testing.T) {
 	assert.Equal(t, "insufficient inventory", resultPayload.Reason)
 }
 
+func TestPaymentReservedHandler_ChaosMode(t *testing.T) {
+	store := newMockInventoryStore()
+	producer := newMockProducer()
+	h := NewPaymentReservedHandler(store, producer, 1.0, true)
+
+	event := makePaymentReservedEvent("order-3", 9.99)
+	err := h.Handle(context.Background(), event)
+	require.NoError(t, err)
+
+	assert.Empty(t, store.reservations)
+
+	require.Len(t, producer.published, 1)
+	assert.Equal(t, "inventory-events", producer.published[0].topic)
+	assert.Equal(t, events.InventoryFailed, producer.published[0].event.Type)
+
+	var resultPayload events.InventoryResultPayload
+	err = json.Unmarshal(producer.published[0].event.Payload, &resultPayload)
+	require.NoError(t, err)
+	assert.Equal(t, "order-3", resultPayload.OrderID)
+	assert.Equal(t, "insufficient inventory", resultPayload.Reason)
+}
+
 func TestPaymentReservedHandler_StoreError(t *testing.T) {
 	store := newMockInventoryStore()
 	store.createErr = errors.New("store failure")
 	producer := newMockProducer()
-	h := NewPaymentReservedHandler(store, producer, 1.0)
+	h := NewPaymentReservedHandler(store, producer, 1.0, false)
 
 	event := makePaymentReservedEvent("order-1", 9.99)
 	err := h.Handle(context.Background(), event)
@@ -96,7 +118,7 @@ func TestPaymentReservedHandler_PublishError(t *testing.T) {
 	store := newMockInventoryStore()
 	producer := newMockProducer()
 	producer.err = errors.New("kafka down")
-	h := NewPaymentReservedHandler(store, producer, 1.0)
+	h := NewPaymentReservedHandler(store, producer, 1.0, false)
 
 	event := makePaymentReservedEvent("order-1", 9.99)
 	err := h.Handle(context.Background(), event)

@@ -42,7 +42,7 @@ func main() {
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 	dedup := idempotency.NewDeduplicator(cfg.DeduplicationTTL)
 
-	paymentReservedHandler := handler.NewPaymentReservedHandler(inventoryStore, producer, cfg.SuccessRate)
+	paymentReservedHandler := handler.NewPaymentReservedHandler(inventoryStore, producer, cfg.SuccessRate, cfg.ChaosMode)
 
 	httpHandler := handler.NewHTTPHandler()
 	mux := http.NewServeMux()
