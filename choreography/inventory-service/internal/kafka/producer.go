@@ -39,6 +39,7 @@ func (p *Producer) Publish(ctx context.Context, topic, key string, event *events
 		trace.WithAttributes(
 			semconv.MessagingSystemKafka,
 			semconv.MessagingDestinationName(topic),
+			attribute.String("messaging.event_type", string(event.Type)),
 			attribute.String("messaging.correlation_id", event.CorrelationID),
 		),
 	)
