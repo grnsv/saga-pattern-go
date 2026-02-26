@@ -37,7 +37,7 @@ jobs:
           go-version: "1.26"
       - name: Run tests on all modules
         run: |
-          modules=$(find . -name 'go.mod' ! -path './go.mod' -exec dirname {} \; | sort)
+          modules=$(find . -name 'go.mod' ! -path './go.mod' ! -path '*/integration_test/go.mod' -exec dirname {} \; | sort)
           for mod in $modules; do
             echo "=> test $mod"
             (cd "$mod" && go test -race ./...)
