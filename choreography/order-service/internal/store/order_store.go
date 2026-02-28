@@ -41,7 +41,8 @@ func (s *InMemoryOrderStore) Get(id string) (*model.Order, error) {
 	if !ok {
 		return nil, fmt.Errorf("order %s not found", id)
 	}
-	return order, nil
+	o := *order
+	return &o, nil
 }
 
 func (s *InMemoryOrderStore) Update(order *model.Order) error {
