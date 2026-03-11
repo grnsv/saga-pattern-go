@@ -6,12 +6,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/config"
 	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/handler"
+	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/store"
+)
+
+const (
+	topicSagaEvents = "saga-events"
+	consumerGroupID = "order-api"
 )
 
 func main() {
@@ -28,8 +35,12 @@ func main() {
 	defer stop()
 
 	orderStore := store.NewInMemoryOrderStore()
-	httpHandler := handler.NewHTTPHandler(orderStore)
+	producer := kafka.NewProducer(cfg.KafkaBrokers)
 
+	sagaEventHandler := handler.NewSagaEventHandler(orderStore)
+	sagaEvtConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicSagaEvents, consumerGroupID, sagaEventHandler.Handle)
+
+	httpHandler := handler.NewHTTPHandler(orderStore, producer)
 	mux := http.NewServeMux()
 	httpHandler.RegisterRoutes(mux)
 
@@ -37,6 +48,15 @@ func main() {
 		Addr:    ":" + cfg.HTTPPort,
 		Handler: mux,
 	}
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		slog.InfoContext(ctx, "starting saga-events consumer")
+		if err := sagaEvtConsumer.Start(ctx); err != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "consumer error", "error", err)
+			stop()
+		}
+	})
 
 	go func() {
 		slog.InfoContext(ctx, "starting order-api", "port", cfg.HTTPPort)
@@ -49,9 +69,17 @@ func main() {
 	<-ctx.Done()
 	slog.InfoContext(ctx, "shutting down order-api")
 
+	wg.Wait()
+
+	if err := sagaEvtConsumer.Close(); err != nil {
+		slog.Error("consumer close error", "error", err)
+	}
+	if err := producer.Close(); err != nil {
+		slog.Error("producer close error", "error", err)
+	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.ErrorContext(shutdownCtx, "http server shutdown error", "error", err)
 	}

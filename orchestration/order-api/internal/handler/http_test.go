@@ -15,7 +15,7 @@ import (
 )
 
 func newTestServer(s *mockOrderStore) *http.ServeMux {
-	h := NewHTTPHandler(s)
+	h := NewHTTPHandler(s, nil)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return mux
