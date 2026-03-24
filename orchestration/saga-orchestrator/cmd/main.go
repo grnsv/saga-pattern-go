@@ -75,7 +75,10 @@ func main() {
 		Handler: mux,
 	}
 
-	// --- Start consumers ---
+	// --- Timeout worker ---
+	timeoutWorker := saga.NewTimeoutWorker(sagaStore, orchestrator, cfg.TimeoutCheckInterval, cfg.MaxRetries)
+
+	// --- Start consumers and timeout worker ---
 	var wg sync.WaitGroup
 	for _, c := range []*kafka.Consumer{sagaCmdConsumer, paymentEvtConsumer, inventoryEvtConsumer} {
 		wg.Go(func() {
@@ -85,6 +88,9 @@ func main() {
 			}
 		})
 	}
+	wg.Go(func() {
+		timeoutWorker.Run(ctx)
+	})
 
 	go func() {
 		slog.InfoContext(ctx, "starting saga-orchestrator",
