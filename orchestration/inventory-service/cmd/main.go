@@ -12,6 +12,7 @@ import (
 
 	"github.com/grnsv/saga-pattern-go/orchestration/inventory-service/internal/config"
 	"github.com/grnsv/saga-pattern-go/orchestration/inventory-service/internal/handler"
+	"github.com/grnsv/saga-pattern-go/orchestration/inventory-service/internal/idempotency"
 	"github.com/grnsv/saga-pattern-go/orchestration/inventory-service/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/orchestration/inventory-service/internal/store"
 )
@@ -36,8 +37,9 @@ func main() {
 
 	inventoryStore := store.NewInMemoryInventoryStore()
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
+	dedup := idempotency.NewDeduplicator(cfg.DeduplicationTTL)
 	cmdHandler := handler.NewCommandHandler(inventoryStore, producer, cfg.SuccessRate)
-	consumer := kafka.NewConsumer(cfg.KafkaBrokers, inventoryCommandsTopic, consumerGroupID, cmdHandler.Handle)
+	consumer := kafka.NewConsumer(cfg.KafkaBrokers, inventoryCommandsTopic, consumerGroupID, dedup.Wrap(cmdHandler.Handle))
 
 	mux := http.NewServeMux()
 	handler.RegisterProbeRoutes(mux)

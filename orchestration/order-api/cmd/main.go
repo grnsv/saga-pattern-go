@@ -12,6 +12,7 @@ import (
 
 	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/config"
 	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/handler"
+	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/idempotency"
 	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/orchestration/order-api/internal/store"
 )
@@ -37,8 +38,9 @@ func main() {
 	orderStore := store.NewInMemoryOrderStore()
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
 
+	dedup := idempotency.NewDeduplicator(cfg.DeduplicationTTL)
 	sagaEventHandler := handler.NewSagaEventHandler(orderStore)
-	sagaEvtConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicSagaEvents, consumerGroupID, sagaEventHandler.Handle)
+	sagaEvtConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicSagaEvents, consumerGroupID, dedup.Wrap(sagaEventHandler.Handle))
 
 	httpHandler := handler.NewHTTPHandler(orderStore, producer)
 	mux := http.NewServeMux()

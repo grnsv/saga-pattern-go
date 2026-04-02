@@ -12,6 +12,7 @@ import (
 
 	"github.com/grnsv/saga-pattern-go/orchestration/payment-service/internal/config"
 	"github.com/grnsv/saga-pattern-go/orchestration/payment-service/internal/handler"
+	"github.com/grnsv/saga-pattern-go/orchestration/payment-service/internal/idempotency"
 	"github.com/grnsv/saga-pattern-go/orchestration/payment-service/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/orchestration/payment-service/internal/store"
 )
@@ -36,8 +37,9 @@ func main() {
 
 	paymentStore := store.NewInMemoryPaymentStore()
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
+	dedup := idempotency.NewDeduplicator(cfg.DeduplicationTTL)
 	cmdHandler := handler.NewCommandHandler(paymentStore, producer, cfg.SuccessRate)
-	consumer := kafka.NewConsumer(cfg.KafkaBrokers, paymentCommandsTopic, consumerGroupID, cmdHandler.Handle)
+	consumer := kafka.NewConsumer(cfg.KafkaBrokers, paymentCommandsTopic, consumerGroupID, dedup.Wrap(cmdHandler.Handle))
 
 	mux := http.NewServeMux()
 	handler.RegisterProbeRoutes(mux)

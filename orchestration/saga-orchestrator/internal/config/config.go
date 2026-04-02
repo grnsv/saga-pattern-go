@@ -14,6 +14,7 @@ type Config struct {
 	StepTimeout          time.Duration `env:"STEP_TIMEOUT"            envDefault:"5s"`
 	MaxRetries           int           `env:"MAX_RETRIES"             envDefault:"3"`
 	TimeoutCheckInterval time.Duration `env:"TIMEOUT_CHECK_INTERVAL"  envDefault:"1s"`
+	DeduplicationTTL     time.Duration `env:"DEDUPLICATION_TTL"       envDefault:"24h"`
 }
 
 // Load parses configuration from environment variables.

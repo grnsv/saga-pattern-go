@@ -1,11 +1,16 @@
 package config
 
-import "github.com/caarlos0/env/v11"
+import (
+	"time"
+
+	"github.com/caarlos0/env/v11"
+)
 
 type Config struct {
-	HTTPPort     string   `env:"HTTP_PORT"     envDefault:"8080"`
-	KafkaBrokers []string `env:"KAFKA_BROKERS" envDefault:"localhost:9092" envSeparator:","`
-	SuccessRate  float64  `env:"SUCCESS_RATE"  envDefault:"0.8"`
+	HTTPPort         string        `env:"HTTP_PORT"         envDefault:"8080"`
+	KafkaBrokers     []string      `env:"KAFKA_BROKERS"     envDefault:"localhost:9092" envSeparator:","`
+	SuccessRate      float64       `env:"SUCCESS_RATE"      envDefault:"0.8"`
+	DeduplicationTTL time.Duration `env:"DEDUPLICATION_TTL" envDefault:"24h"`
 }
 
 func Load() (Config, error) {

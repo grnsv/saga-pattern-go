@@ -19,6 +19,7 @@ import (
 
 	"github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/config"
 	"github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/handler"
+	"github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/idempotency"
 	"github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/kafka"
 	"github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/saga"
 	"github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/store"
@@ -59,12 +60,13 @@ func main() {
 
 	// --- Kafka ---
 	producer := kafka.NewProducer(cfg.KafkaBrokers)
+	dedup := idempotency.NewDeduplicator(cfg.DeduplicationTTL)
 	orchestrator := saga.NewOrchestrator(sagaStore, producer, cfg.StepTimeout)
 	kafkaHandler := handler.NewKafkaHandler(orchestrator)
 
-	sagaCmdConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicSagaCommands, consumerGroupID, kafkaHandler.HandleCommand)
-	paymentEvtConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicPaymentEvents, consumerGroupID, kafkaHandler.HandleEvent)
-	inventoryEvtConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicInventoryEvents, consumerGroupID, kafkaHandler.HandleEvent)
+	sagaCmdConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicSagaCommands, consumerGroupID, dedup.Wrap(kafkaHandler.HandleCommand))
+	paymentEvtConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicPaymentEvents, consumerGroupID, dedup.Wrap(kafkaHandler.HandleEvent))
+	inventoryEvtConsumer := kafka.NewConsumer(cfg.KafkaBrokers, topicInventoryEvents, consumerGroupID, dedup.Wrap(kafkaHandler.HandleEvent))
 
 	// --- HTTP ---
 	httpHandler := handler.NewHTTPHandler(sagaStore)
