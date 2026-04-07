@@ -22,8 +22,7 @@ func NewSagaEventHandler(s OrderStore) *SagaEventHandler {
 }
 
 // Handle processes a message from the saga-events topic.
-// Signature matches kafka.MessageHandler (value receiver).
-func (h *SagaEventHandler) Handle(ctx context.Context, msg kafkago.Message) error { //nolint:gocritic // value type required by kafka.MessageHandler contract
+func (h *SagaEventHandler) Handle(ctx context.Context, msg *kafkago.Message) error {
 	var evt messages.Event
 	if err := json.Unmarshal(msg.Value, &evt); err != nil {
 		slog.WarnContext(ctx, "failed to unmarshal saga event", "error", err)

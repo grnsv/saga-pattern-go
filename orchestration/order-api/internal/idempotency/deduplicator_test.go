@@ -71,15 +71,15 @@ func makeMessage(id string) kafkago.Message {
 func TestDeduplicator_Wrap_SkipsDuplicate(t *testing.T) {
 	d := NewDeduplicator(time.Minute)
 	calls := 0
-	handler := func(_ context.Context, _ kafkago.Message) error {
+	handler := func(_ context.Context, _ *kafkago.Message) error {
 		calls++
 		return nil
 	}
 	wrapped := d.Wrap(handler)
 	msg := makeMessage("wrap-dup")
 
-	require.NoError(t, wrapped(context.Background(), msg))
-	require.NoError(t, wrapped(context.Background(), msg))
+	require.NoError(t, wrapped(context.Background(), &msg))
+	require.NoError(t, wrapped(context.Background(), &msg))
 
 	assert.Equal(t, 1, calls, "handler should be called only once for duplicate message")
 }
@@ -88,7 +88,7 @@ func TestDeduplicator_Wrap_UnmarksOnError(t *testing.T) {
 	d := NewDeduplicator(time.Minute)
 	handlerErr := errors.New("handler error")
 	calls := 0
-	handler := func(_ context.Context, _ kafkago.Message) error {
+	handler := func(_ context.Context, _ *kafkago.Message) error {
 		calls++
 		if calls == 1 {
 			return handlerErr
@@ -98,44 +98,44 @@ func TestDeduplicator_Wrap_UnmarksOnError(t *testing.T) {
 	wrapped := d.Wrap(handler)
 	msg := makeMessage("wrap-retry")
 
-	require.ErrorIs(t, wrapped(context.Background(), msg), handlerErr)
-	require.NoError(t, wrapped(context.Background(), msg), "retry after error should succeed")
+	require.ErrorIs(t, wrapped(context.Background(), &msg), handlerErr)
+	require.NoError(t, wrapped(context.Background(), &msg), "retry after error should succeed")
 	assert.Equal(t, 2, calls)
 }
 
 func TestDeduplicator_Wrap_KeepsMarkOnSuccess(t *testing.T) {
 	d := NewDeduplicator(time.Minute)
 	calls := 0
-	handler := func(_ context.Context, _ kafkago.Message) error {
+	handler := func(_ context.Context, _ *kafkago.Message) error {
 		calls++
 		return nil
 	}
 	wrapped := d.Wrap(handler)
 	msg := makeMessage("wrap-ok")
 
-	assert.NoError(t, wrapped(context.Background(), msg))
-	assert.NoError(t, wrapped(context.Background(), msg))
+	assert.NoError(t, wrapped(context.Background(), &msg))
+	assert.NoError(t, wrapped(context.Background(), &msg))
 	assert.Equal(t, 1, calls, "handler should not be called again after success")
 }
 
 func TestDeduplicator_Wrap_InvalidJSON(t *testing.T) {
 	d := NewDeduplicator(time.Minute)
 	calls := 0
-	handler := func(_ context.Context, _ kafkago.Message) error {
+	handler := func(_ context.Context, _ *kafkago.Message) error {
 		calls++
 		return nil
 	}
 	wrapped := d.Wrap(handler)
 	msg := kafkago.Message{Value: []byte("not-json")}
 
-	require.NoError(t, wrapped(context.Background(), msg))
+	require.NoError(t, wrapped(context.Background(), &msg))
 	assert.Equal(t, 1, calls, "handler should be called for unparseable messages")
 }
 
 func TestDeduplicator_Wrap_EmptyID(t *testing.T) {
 	d := NewDeduplicator(time.Minute)
 	calls := 0
-	handler := func(_ context.Context, _ kafkago.Message) error {
+	handler := func(_ context.Context, _ *kafkago.Message) error {
 		calls++
 		return nil
 	}
@@ -145,7 +145,7 @@ func TestDeduplicator_Wrap_EmptyID(t *testing.T) {
 	b, _ := json.Marshal(env)
 	msg := kafkago.Message{Value: b}
 
-	require.NoError(t, wrapped(context.Background(), msg))
-	require.NoError(t, wrapped(context.Background(), msg))
+	require.NoError(t, wrapped(context.Background(), &msg))
+	require.NoError(t, wrapped(context.Background(), &msg))
 	assert.Equal(t, 2, calls, "messages with empty ID should not be deduplicated")
 }

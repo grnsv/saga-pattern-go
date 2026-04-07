@@ -19,7 +19,7 @@ const (
 )
 
 // MessageHandler processes a raw Kafka message.
-type MessageHandler func(ctx context.Context, msg kafkago.Message) error
+type MessageHandler func(ctx context.Context, msg *kafkago.Message) error
 
 // Consumer reads messages from a Kafka topic and delegates processing to a MessageHandler.
 type Consumer struct {
@@ -89,7 +89,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg *kafkago.Message) {
 }
 
 func (c *Consumer) processWithRetry(ctx context.Context, msg *kafkago.Message) (int, error) {
-	err := c.handler(ctx, *msg)
+	err := c.handler(ctx, msg)
 	if err == nil {
 		c.addBudget(1)
 		return 0, nil
@@ -123,7 +123,7 @@ func (c *Consumer) processWithRetry(ctx context.Context, msg *kafkago.Message) (
 			return retry, ctx.Err()
 		}
 
-		err = c.handler(ctx, *msg)
+		err = c.handler(ctx, msg)
 		if err == nil {
 			c.addBudget(1)
 			return retry, nil

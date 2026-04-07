@@ -45,7 +45,7 @@ func TestKafkaHandler_HandleCommand_StartSaga(t *testing.T) {
 	msg := makeCommandMsg(messages.CmdStartSaga, messages.StartSagaPayload{
 		OrderID: "order-1", Item: "widget", Qty: 1, Amount: 9.99,
 	})
-	require.NoError(t, h.HandleCommand(context.Background(), msg))
+	require.NoError(t, h.HandleCommand(context.Background(), &msg))
 
 	require.Len(t, orch.startCalls, 1)
 	assert.Equal(t, "corr-1", orch.startCalls[0].correlationID)
@@ -64,14 +64,14 @@ func TestKafkaHandler_HandleCommand_UnknownType(t *testing.T) {
 	b, _ := json.Marshal(cmd)
 	msg := kafkago.Message{Value: b}
 
-	require.NoError(t, h.HandleCommand(context.Background(), msg))
+	require.NoError(t, h.HandleCommand(context.Background(), &msg))
 	assert.Empty(t, orch.startCalls)
 }
 
 func TestKafkaHandler_HandleCommand_InvalidJSON(t *testing.T) {
 	h := NewKafkaHandler(&mockOrchestrator{})
 	msg := kafkago.Message{Value: []byte("not-json")}
-	assert.NoError(t, h.HandleCommand(context.Background(), msg))
+	assert.NoError(t, h.HandleCommand(context.Background(), &msg))
 }
 
 func TestKafkaHandler_HandleEvent_PaymentReserved(t *testing.T) {
@@ -79,7 +79,7 @@ func TestKafkaHandler_HandleEvent_PaymentReserved(t *testing.T) {
 	h := NewKafkaHandler(orch)
 
 	msg := makeEventMsg(messages.EvtPaymentReserved)
-	require.NoError(t, h.HandleEvent(context.Background(), msg))
+	require.NoError(t, h.HandleEvent(context.Background(), &msg))
 
 	require.Len(t, orch.eventCalls, 1)
 	assert.Equal(t, messages.EvtPaymentReserved, orch.eventCalls[0].Type)
@@ -88,5 +88,5 @@ func TestKafkaHandler_HandleEvent_PaymentReserved(t *testing.T) {
 func TestKafkaHandler_HandleEvent_InvalidJSON(t *testing.T) {
 	h := NewKafkaHandler(&mockOrchestrator{})
 	msg := kafkago.Message{Value: []byte("not-json")}
-	assert.NoError(t, h.HandleEvent(context.Background(), msg))
+	assert.NoError(t, h.HandleEvent(context.Background(), &msg))
 }

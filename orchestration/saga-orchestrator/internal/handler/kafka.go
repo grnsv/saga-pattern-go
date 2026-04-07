@@ -29,7 +29,7 @@ func NewKafkaHandler(o SagaOrchestrator) *KafkaHandler {
 
 // HandleCommand processes messages from the saga-commands topic.
 // It currently handles the StartSaga command type.
-func (h *KafkaHandler) HandleCommand(ctx context.Context, msg kafkago.Message) error { //nolint:gocritic // value type required by kafka.MessageHandler contract
+func (h *KafkaHandler) HandleCommand(ctx context.Context, msg *kafkago.Message) error {
 	var cmd messages.Command
 	if err := json.Unmarshal(msg.Value, &cmd); err != nil {
 		slog.WarnContext(ctx, "failed to unmarshal command", "error", err)
@@ -56,7 +56,7 @@ func (h *KafkaHandler) HandleCommand(ctx context.Context, msg kafkago.Message) e
 }
 
 // HandleEvent processes messages from payment-events and inventory-events topics.
-func (h *KafkaHandler) HandleEvent(ctx context.Context, msg kafkago.Message) error { //nolint:gocritic // value type required by kafka.MessageHandler contract
+func (h *KafkaHandler) HandleEvent(ctx context.Context, msg *kafkago.Message) error {
 	var evt messages.Event
 	if err := json.Unmarshal(msg.Value, &evt); err != nil {
 		slog.WarnContext(ctx, "failed to unmarshal event", "error", err)

@@ -69,8 +69,8 @@ func (d *Deduplicator) evict(now time.Time) {
 // The message ID is extracted from the JSON envelope in the Kafka message value.
 // If the message ID was already processed within TTL, the handler is not called.
 // On handler error, the ID is unmarked to allow reprocessing on retry.
-func (d *Deduplicator) Wrap(next func(context.Context, kafkago.Message) error) func(context.Context, kafkago.Message) error {
-	return func(ctx context.Context, msg kafkago.Message) error {
+func (d *Deduplicator) Wrap(next func(context.Context, *kafkago.Message) error) func(context.Context, *kafkago.Message) error {
+	return func(ctx context.Context, msg *kafkago.Message) error {
 		var env envelope
 		if err := json.Unmarshal(msg.Value, &env); err != nil {
 			return next(ctx, msg)

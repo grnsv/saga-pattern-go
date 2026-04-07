@@ -43,7 +43,8 @@ func TestSagaEventHandler_SagaCompleted(t *testing.T) {
 	s := storeWithOrder("order-1")
 	h := NewSagaEventHandler(s)
 
-	err := h.Handle(context.Background(), makeSagaEventMsg(messages.EvtSagaCompleted, "order-1"))
+	msg := makeSagaEventMsg(messages.EvtSagaCompleted, "order-1")
+	err := h.Handle(context.Background(), &msg)
 	require.NoError(t, err)
 
 	assert.Equal(t, model.OrderConfirmed, s.orders["order-1"].Status)
@@ -53,7 +54,8 @@ func TestSagaEventHandler_SagaFailed(t *testing.T) {
 	s := storeWithOrder("order-2")
 	h := NewSagaEventHandler(s)
 
-	err := h.Handle(context.Background(), makeSagaEventMsg(messages.EvtSagaFailed, "order-2"))
+	msg := makeSagaEventMsg(messages.EvtSagaFailed, "order-2")
+	err := h.Handle(context.Background(), &msg)
 	require.NoError(t, err)
 
 	assert.Equal(t, model.OrderCancelled, s.orders["order-2"].Status)
@@ -71,7 +73,7 @@ func TestSagaEventHandler_UnknownEventType(t *testing.T) {
 	b, _ := json.Marshal(evt)
 	msg := kafkago.Message{Value: b}
 
-	assert.NoError(t, h.Handle(context.Background(), msg))
+	assert.NoError(t, h.Handle(context.Background(), &msg))
 }
 
 func TestSagaEventHandler_OrderNotFound(t *testing.T) {
@@ -79,12 +81,13 @@ func TestSagaEventHandler_OrderNotFound(t *testing.T) {
 	s := newMockStore()
 	h := NewSagaEventHandler(s)
 
-	err := h.Handle(context.Background(), makeSagaEventMsg(messages.EvtSagaCompleted, "missing-order"))
+	msg := makeSagaEventMsg(messages.EvtSagaCompleted, "missing-order")
+	err := h.Handle(context.Background(), &msg)
 	assert.NoError(t, err)
 }
 
 func TestSagaEventHandler_InvalidJSON(t *testing.T) {
 	h := NewSagaEventHandler(newMockStore())
 	msg := kafkago.Message{Value: []byte("not-json")}
-	assert.NoError(t, h.Handle(context.Background(), msg))
+	assert.NoError(t, h.Handle(context.Background(), &msg))
 }
