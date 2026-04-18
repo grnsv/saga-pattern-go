@@ -12,10 +12,30 @@ import (
 
 var errHandler = errors.New("handler error")
 
+type mockDLQ struct {
+	sends []dlqSend
+	err   error
+}
+
+type dlqSend struct {
+	topic   string
+	retries int
+	err     error
+}
+
+func (m *mockDLQ) Send(_ context.Context, originalTopic string, _ *kafkago.Message, handlerErr error, retries int) error {
+	m.sends = append(m.sends, dlqSend{topic: originalTopic, retries: retries, err: handlerErr})
+	return m.err
+}
+
+func (m *mockDLQ) Close() error { return nil }
+
 func newTestConsumer(h MessageHandler) *Consumer {
 	c := &Consumer{
-		topic:   "test-topic",
-		handler: h,
+		topic:    "test-topic",
+		handler:  h,
+		dlq:      &mockDLQ{},
+		commitFn: func(_ context.Context, _ *kafkago.Message) {},
 	}
 	c.retryBudget.Store(retryBudgetCapacity)
 	return c
@@ -104,4 +124,59 @@ func TestProcessWithRetry_BudgetRestoredOnSuccess(t *testing.T) {
 	require.NoError(t, err)
 	// budget restored: consumed 1 for retry, restored 1 on success
 	assert.Equal(t, initialBudget, c.retryBudget.Load())
+}
+
+func TestProcessMessage_SendsToDLQOnRetryExhaustion(t *testing.T) {
+	dlq := &mockDLQ{}
+	c := &Consumer{
+		topic:    "test-topic",
+		handler:  func(_ context.Context, _ *kafkago.Message) error { return errHandler },
+		dlq:      dlq,
+		commitFn: func(_ context.Context, _ *kafkago.Message) {},
+	}
+	c.retryBudget.Store(retryBudgetCapacity)
+
+	c.processMessage(context.Background(), &kafkago.Message{Key: []byte("corr-id")})
+
+	require.Len(t, dlq.sends, 1)
+	assert.Equal(t, "test-topic", dlq.sends[0].topic)
+	assert.Equal(t, errHandler, dlq.sends[0].err)
+	assert.Equal(t, maxRetries, dlq.sends[0].retries)
+}
+
+func TestProcessMessage_DoesNotCommitWhenDLQFails(t *testing.T) {
+	committed := false
+	dlq := &mockDLQ{err: errors.New("dlq unavailable")}
+	c := &Consumer{
+		topic:   "test-topic",
+		handler: func(_ context.Context, _ *kafkago.Message) error { return errHandler },
+		dlq:     dlq,
+		commitFn: func(_ context.Context, _ *kafkago.Message) {
+			committed = true
+		},
+	}
+	c.retryBudget.Store(retryBudgetCapacity)
+
+	c.processMessage(context.Background(), &kafkago.Message{})
+
+	assert.False(t, committed)
+}
+
+func TestProcessMessage_CommitsOnSuccess(t *testing.T) {
+	committed := false
+	dlq := &mockDLQ{}
+	c := &Consumer{
+		topic:   "test-topic",
+		handler: func(_ context.Context, _ *kafkago.Message) error { return nil },
+		dlq:     dlq,
+		commitFn: func(_ context.Context, _ *kafkago.Message) {
+			committed = true
+		},
+	}
+	c.retryBudget.Store(retryBudgetCapacity)
+
+	c.processMessage(context.Background(), &kafkago.Message{})
+
+	assert.True(t, committed)
+	assert.Empty(t, dlq.sends)
 }

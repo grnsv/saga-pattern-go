@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"math/rand/v2"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -21,13 +20,20 @@ const (
 // MessageHandler processes a raw Kafka message.
 type MessageHandler func(ctx context.Context, msg *kafkago.Message) error
 
+// dlqPublisher sends failed messages to a dead-letter queue topic.
+type dlqPublisher interface {
+	Send(ctx context.Context, originalTopic string, msg *kafkago.Message, handlerErr error, retries int) error
+	Close() error
+}
+
 // Consumer reads messages from a Kafka topic and delegates processing to a MessageHandler.
 type Consumer struct {
 	reader      *kafkago.Reader
-	dlqWriter   *kafkago.Writer
+	dlq         dlqPublisher
 	topic       string
 	handler     MessageHandler
 	retryBudget atomic.Int64
+	commitFn    func(ctx context.Context, msg *kafkago.Message)
 }
 
 // NewConsumer creates a new Kafka consumer.
@@ -38,15 +44,16 @@ func NewConsumer(brokers []string, topic, groupID string, handler MessageHandler
 			Topic:   topic,
 			GroupID: groupID,
 		}),
-		dlqWriter: &kafkago.Writer{
-			Addr:         kafkago.TCP(brokers...),
-			Balancer:     &kafkago.LeastBytes{},
-			RequiredAcks: kafkago.RequireAll,
-		},
+		dlq:     NewDLQPublisher(brokers),
 		topic:   topic,
 		handler: handler,
 	}
 	c.retryBudget.Store(retryBudgetCapacity)
+	c.commitFn = func(ctx context.Context, msg *kafkago.Message) {
+		if err := c.reader.CommitMessages(ctx, *msg); err != nil {
+			slog.ErrorContext(ctx, "failed to commit message", "topic", c.topic, "error", err)
+		}
+	}
 	return c
 }
 
@@ -75,7 +82,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg *kafkago.Message) {
 			"retries", retries,
 			"error", err,
 		)
-		if dlqErr := c.sendToDLQ(ctx, msg, err, retries); dlqErr != nil {
+		if dlqErr := c.dlq.Send(ctx, c.topic, msg, err, retries); dlqErr != nil {
 			slog.ErrorContext(ctx, "DLQ unavailable, offset not committed - will retry on restart",
 				"topic", c.topic,
 				"correlationId", string(msg.Key),
@@ -85,7 +92,7 @@ func (c *Consumer) processMessage(ctx context.Context, msg *kafkago.Message) {
 		}
 	}
 
-	c.commit(ctx, msg)
+	c.commitFn(ctx, msg)
 }
 
 func (c *Consumer) processWithRetry(ctx context.Context, msg *kafkago.Message) (int, error) {
@@ -157,51 +164,7 @@ func (c *Consumer) addBudget(n int64) {
 	}
 }
 
-func (c *Consumer) sendToDLQ(ctx context.Context, msg *kafkago.Message, handlerErr error, retries int) error {
-	dlqTopic := c.topic + ".dlq"
-
-	headers := make([]kafkago.Header, len(msg.Headers), len(msg.Headers)+4)
-	copy(headers, msg.Headers)
-	headers = append(headers,
-		kafkago.Header{Key: "original-topic", Value: []byte(c.topic)},
-		kafkago.Header{Key: "error", Value: []byte(handlerErr.Error())},
-		kafkago.Header{Key: "failed-at", Value: []byte(time.Now().UTC().Format(time.RFC3339Nano))},
-		kafkago.Header{Key: "retry-count", Value: []byte(strconv.Itoa(retries))},
-	)
-
-	dlqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-
-	if err := c.dlqWriter.WriteMessages(dlqCtx, kafkago.Message{
-		Topic:   dlqTopic,
-		Key:     msg.Key,
-		Value:   msg.Value,
-		Headers: headers,
-	}); err != nil {
-		slog.ErrorContext(ctx, "failed to write to DLQ",
-			"dlq", dlqTopic,
-			"correlationId", string(msg.Key),
-			"error", err,
-		)
-		return err
-	}
-
-	slog.WarnContext(ctx, "message sent to DLQ",
-		"dlq", dlqTopic,
-		"originalTopic", c.topic,
-		"correlationId", string(msg.Key),
-		"error", handlerErr.Error(),
-	)
-	return nil
-}
-
-func (c *Consumer) commit(ctx context.Context, msg *kafkago.Message) {
-	if err := c.reader.CommitMessages(ctx, *msg); err != nil {
-		slog.ErrorContext(ctx, "failed to commit message", "topic", c.topic, "error", err)
-	}
-}
-
-// Close closes the underlying Kafka reader and DLQ writer.
+// Close closes the underlying Kafka reader and DLQ publisher.
 func (c *Consumer) Close() error {
-	return errors.Join(c.reader.Close(), c.dlqWriter.Close())
+	return errors.Join(c.reader.Close(), c.dlq.Close())
 }
