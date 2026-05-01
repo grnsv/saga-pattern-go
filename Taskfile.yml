@@ -78,6 +78,40 @@ tasks:
       - task: _smoke
       - task: down
 
+  orch-up:
+    desc: Start orchestration stack with Docker Compose
+    cmds:
+      - docker compose -f docker-compose.orchestration.yml up -d --build
+
+  orch-down:
+    desc: Stop orchestration stack and remove volumes
+    cmds:
+      - docker compose -f docker-compose.orchestration.yml down -v
+
+  orch-logs:
+    desc: Tail logs from all orchestration services
+    cmds:
+      - docker compose -f docker-compose.orchestration.yml logs -f
+
+  orch-create-order:
+    desc: Create a test order via the orchestration order-api HTTP API
+    cmds:
+      - curl -s -X POST http://localhost:8080/orders -d '{"item":"widget","qty":1}' | jq .
+
+  orch-saga-status:
+    desc: Get saga status from saga-orchestrator; pass CORRELATION_ID=<order id>
+    requires:
+      vars: [CORRELATION_ID]
+    cmds:
+      - curl -s "http://localhost:8081/sagas/{{.CORRELATION_ID}}" | jq .
+
+  orch-smoke-test:
+    desc: Run orchestration smoke test (starts stack, creates order, verifies saga completes)
+    cmds:
+      - task: orch-up
+      - task: _orch-smoke
+      - task: orch-down
+
   _smoke:
     internal: true
     cmds:
@@ -103,6 +137,46 @@ tasks:
           sleep 1
         done
         echo "FAIL: saga did not complete within 30s (last status: $STATUS)"
+        exit 1
+
+  _orch-smoke:
+    internal: true
+    cmds:
+      - |
+        echo "Waiting for orchestration APIs to be ready..."
+        for i in $(seq 1 36); do
+          ORDER_READY=0
+          SAGA_READY=0
+          curl -sf http://localhost:8080/healthz > /dev/null 2>&1 && ORDER_READY=1
+          curl -sf http://localhost:8081/healthz > /dev/null 2>&1 && SAGA_READY=1
+          if [ "$ORDER_READY" = "1" ] && [ "$SAGA_READY" = "1" ]; then
+            break
+          fi
+          echo "  attempt $i/36, retrying in 5s..."
+          sleep 5
+        done
+        echo "Creating order..."
+        RESP=$(curl -s -X POST http://localhost:8080/orders -d '{"item":"widget","qty":1}')
+        ORDER_ID=$(echo "$RESP" | jq -r '.id')
+        if [ -z "$ORDER_ID" ] || [ "$ORDER_ID" = "null" ]; then
+          echo "FAIL: could not create order"
+          echo "$RESP"
+          exit 1
+        fi
+        echo "Created order: $ORDER_ID"
+        echo "Waiting for saga to complete..."
+        for i in $(seq 1 45); do
+          STATUS=$(curl -s "http://localhost:8080/orders/$ORDER_ID" | jq -r '.status')
+          if [ "$STATUS" = "CONFIRMED" ] || [ "$STATUS" = "CANCELLED" ]; then
+            echo "PASS: saga completed ($STATUS)"
+            curl -s "http://localhost:8081/sagas/$ORDER_ID" | jq .
+            exit 0
+          fi
+          echo "  attempt $i/45, status=$STATUS, retrying in 1s..."
+          sleep 1
+        done
+        echo "FAIL: saga did not complete within 45s (last status: $STATUS)"
+        curl -s "http://localhost:8081/sagas/$ORDER_ID" | jq . || true
         exit 1
 
   tools:
