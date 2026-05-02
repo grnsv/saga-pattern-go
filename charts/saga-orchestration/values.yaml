@@ -1,0 +1,97 @@
+global:
+  # Override Kafka broker address; defaults to <release>-kafka:9092
+  kafkaBrokers: ""
+  imagePullPolicy: Never
+
+kafka:
+  image: apache/kafka
+  tag: "4.2.0"
+  # This chart configures Kafka as a single-node KRaft broker.
+  replicaCount: 1
+  storage: 1Gi
+  clusterId: "4L6g3nShT-eMCtK--X86sw"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      cpu: 500m
+      memory: 768Mi
+
+postgres:
+  image: postgres
+  tag: "17-alpine"
+  database: saga
+  user: saga
+  password: saga
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+orderApi:
+  image: saga-order-api
+  tag: latest
+  replicaCount: 1
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+sagaOrchestrator:
+  image: saga-orchestrator
+  tag: latest
+  replicaCount: 1
+  port: 8081
+  stepTimeout: "5s"
+  maxRetries: 3
+  timeoutCheckInterval: "1s"
+  resources:
+    requests:
+      cpu: 75m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+paymentService:
+  image: saga-payment-service
+  tag: latest
+  replicaCount: 1
+  port: 8080
+  successRate: "0.8"
+  maxReplicas: 3
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+inventoryService:
+  image: saga-inventory-service
+  tag: latest
+  replicaCount: 1
+  port: 8080
+  successRate: "0.8"
+  maxReplicas: 3
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+hpa:
+  enabled: false
+  targetCPUUtilization: 70

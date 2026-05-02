@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "saga-orchestration.fullname" . }}-saga-orchestrator
+  labels:
+    {{- include "saga-orchestration.labels" . | nindent 4 }}
+    app.kubernetes.io/name: saga-orchestrator
+spec:
+  selector:
+    app.kubernetes.io/name: saga-orchestrator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.sagaOrchestrator.port }}
+  type: ClusterIP

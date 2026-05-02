@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "saga-orchestration.fullname" . }}-kafka-init-{{ .Release.Revision }}
+  labels:
+    {{- include "saga-orchestration.labels" . | nindent 4 }}
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-init
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-init
+          image: "{{ .Values.kafka.image }}:{{ .Values.kafka.tag }}"
+          command:
+            - bash
+            - -c
+            - |
+              BROKER={{ include "saga-orchestration.kafkaBrokers" . }}
+              echo "Waiting for Kafka at $BROKER..."
+              until /opt/kafka/bin/kafka-broker-api-versions.sh \
+                    --bootstrap-server "$BROKER" > /dev/null 2>&1; do
+                echo "  not ready, retrying in 2s..."
+                sleep 2
+              done
+              echo "Kafka ready. Creating topics..."
+              for topic in \
+                saga-commands payment-commands payment-events \
+                inventory-commands inventory-events saga-events \
+                saga-commands.dlq payment-commands.dlq payment-events.dlq \
+                inventory-commands.dlq inventory-events.dlq saga-events.dlq; do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BROKER" \
+                  --create --if-not-exists --topic "$topic" --partitions 1 --replication-factor 1
+              done
+              echo "All topics ready."

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "saga-orchestration.fullname" . }}-payment-service
+  labels:
+    {{- include "saga-orchestration.labels" . | nindent 4 }}
+    app.kubernetes.io/name: payment-service
+spec:
+  replicas: {{ .Values.paymentService.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-service
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payment-service
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      initContainers:
+        {{- include "saga-orchestration.kafkaWaitTopicsContainer" . | nindent 8 }}
+      containers:
+        - name: payment-service
+          image: "{{ .Values.paymentService.image }}:{{ .Values.paymentService.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.paymentService.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "saga-orchestration.fullname" . }}-config
+          env:
+            - name: HTTP_PORT
+              value: {{ .Values.paymentService.port | quote }}
+            - name: SUCCESS_RATE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "saga-orchestration.fullname" . }}-config
+                  key: PAYMENT_SUCCESS_RATE
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.paymentService.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

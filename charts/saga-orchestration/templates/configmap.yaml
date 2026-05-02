@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "saga-orchestration.fullname" . }}-config
+  labels:
+    {{- include "saga-orchestration.labels" . | nindent 4 }}
+data:
+  KAFKA_BROKERS: {{ include "saga-orchestration.kafkaBrokers" . | quote }}
+  DATABASE_URL: {{ include "saga-orchestration.databaseURL" . | quote }}
+  STEP_TIMEOUT: {{ .Values.sagaOrchestrator.stepTimeout | quote }}
+  MAX_RETRIES: {{ .Values.sagaOrchestrator.maxRetries | quote }}
+  TIMEOUT_CHECK_INTERVAL: {{ .Values.sagaOrchestrator.timeoutCheckInterval | quote }}
+  PAYMENT_SUCCESS_RATE: {{ .Values.paymentService.successRate | quote }}
+  INVENTORY_SUCCESS_RATE: {{ .Values.inventoryService.successRate | quote }}

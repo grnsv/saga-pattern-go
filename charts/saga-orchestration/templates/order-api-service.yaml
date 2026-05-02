@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "saga-orchestration.fullname" . }}-order-api
+  labels:
+    {{- include "saga-orchestration.labels" . | nindent 4 }}
+    app.kubernetes.io/name: order-api
+spec:
+  selector:
+    app.kubernetes.io/name: order-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.orderApi.port }}
+  type: ClusterIP

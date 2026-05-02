@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "saga-orchestration.fullname" . }}-saga-orchestrator
+  labels:
+    {{- include "saga-orchestration.labels" . | nindent 4 }}
+    app.kubernetes.io/name: saga-orchestrator
+spec:
+  replicas: {{ .Values.sagaOrchestrator.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: saga-orchestrator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: saga-orchestrator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      initContainers:
+        {{- include "saga-orchestration.kafkaWaitTopicsContainer" . | nindent 8 }}
+        {{- include "saga-orchestration.postgresWaitContainer" . | nindent 8 }}
+      containers:
+        - name: saga-orchestrator
+          image: "{{ .Values.sagaOrchestrator.image }}:{{ .Values.sagaOrchestrator.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.sagaOrchestrator.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "saga-orchestration.fullname" . }}-config
+          env:
+            - name: HTTP_PORT
+              value: {{ .Values.sagaOrchestrator.port | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.sagaOrchestrator.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

@@ -1,0 +1,23 @@
+{{- if .Values.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "saga-orchestration.fullname" . }}-payment-service
+  labels:
+    {{- include "saga-orchestration.labels" . | nindent 4 }}
+    app.kubernetes.io/name: payment-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "saga-orchestration.fullname" . }}-payment-service
+  minReplicas: {{ .Values.paymentService.replicaCount }}
+  maxReplicas: {{ .Values.paymentService.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.hpa.targetCPUUtilization }}
+{{- end }}

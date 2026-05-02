@@ -112,6 +112,43 @@ tasks:
       - task: _orch-smoke
       - task: orch-down
 
+  orch-minikube-start:
+    desc: Start Minikube cluster for orchestration
+    cmds:
+      - task: minikube-start
+
+  orch-minikube-build:
+    desc: Build orchestration Docker images inside Minikube Docker daemon
+    cmds:
+      - |
+        eval $(minikube docker-env)
+        docker build -t saga-order-api:latest        ./orchestration/order-api
+        docker build -t saga-orchestrator:latest     ./orchestration/saga-orchestrator
+        docker build -t saga-payment-service:latest  ./orchestration/payment-service
+        docker build -t saga-inventory-service:latest ./orchestration/inventory-service
+
+  orch-minikube-up:
+    desc: Build orchestration images and install Helm chart in Minikube
+    cmds:
+      - task: orch-minikube-start
+      - task: orch-minikube-build
+      - helm upgrade --install saga-orch ./charts/saga-orchestration --namespace saga-pattern --create-namespace
+
+  orch-minikube-down:
+    desc: Uninstall orchestration Helm chart from Minikube
+    cmds:
+      - helm uninstall saga-orch --namespace saga-pattern
+
+  orch-minikube-order:
+    desc: Port-forward orchestration order-api to http://localhost:8080
+    cmds:
+      - kubectl port-forward -n saga-pattern svc/saga-orch-order-api 8080:80
+
+  orch-minikube-saga:
+    desc: Port-forward saga-orchestrator to http://localhost:8081
+    cmds:
+      - kubectl port-forward -n saga-pattern svc/saga-orch-saga-orchestrator 8081:80
+
   _smoke:
     internal: true
     cmds:
