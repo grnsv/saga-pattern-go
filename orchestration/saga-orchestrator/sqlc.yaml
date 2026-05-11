@@ -1,0 +1,42 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema:
+      - "migrations/000001_create_sagas.up.sql"
+      - "migrations/000002_create_saga_history.up.sql"
+    queries: "queries"
+    gen:
+      go:
+        package: "db"
+        out: "internal/store/db"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "string"
+          - db_type: "pg_catalog.uuid"
+            go_type: "string"
+          - db_type: "numeric"
+            go_type: "float64"
+          - db_type: "pg_catalog.numeric"
+            go_type: "float64"
+          - db_type: "timestamptz"
+            go_type:
+              import: "time"
+              type: "Time"
+          - db_type: "pg_catalog.timestamptz"
+            go_type:
+              import: "time"
+              type: "Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          - db_type: "pg_catalog.timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true

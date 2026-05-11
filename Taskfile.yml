@@ -11,6 +11,16 @@ tasks:
     cmds:
       - task --list
 
+  generate:
+    desc: Generate code
+    cmds:
+      - task: sqlc:generate
+
+  sqlc:generate:
+    desc: Generate sqlc code for saga-orchestrator
+    cmds:
+      - cd orchestration/saga-orchestrator && go tool sqlc generate
+
   fmt:
     desc: Format code via golangci-lint fmt
     aliases: [format]

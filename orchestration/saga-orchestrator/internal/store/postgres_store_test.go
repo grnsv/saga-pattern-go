@@ -44,6 +44,27 @@ func TestPostgresStore_Create_Get(t *testing.T) {
 	assert.InDelta(t, 9.99, got.Amount, 0.001)
 }
 
+func TestPostgresStore_Create_RejectsIntegerOverflow(t *testing.T) {
+	s := &store.PostgresSagaStore{}
+	saga := newSaga("pg-overflow")
+	saga.Qty = 2147483648
+
+	err := s.Create(context.Background(), saga)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "qty value")
+}
+
+func TestPostgresStore_Update_RejectsIntegerOverflow(t *testing.T) {
+	s := &store.PostgresSagaStore{}
+	saga := newSaga("pg-overflow-update")
+	saga.RetryCount = 2147483648
+
+	ok, err := s.Update(context.Background(), saga)
+	require.Error(t, err)
+	assert.False(t, ok)
+	assert.Contains(t, err.Error(), "retry_count value")
+}
+
 func TestPostgresStore_Get_NotFound(t *testing.T) {
 	s := openTestDB(t)
 	_, err := s.Get(context.Background(), "does-not-exist")

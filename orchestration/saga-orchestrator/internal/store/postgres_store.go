@@ -3,18 +3,20 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/model"
+	storedb "github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/store/db"
 )
 
 // PostgresSagaStore is the production SagaStore backed by PostgreSQL via pgxpool.
 type PostgresSagaStore struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	queries *storedb.Queries
 }
 
 // NewPostgresSagaStore connects to PostgreSQL and returns a ready store.
@@ -27,7 +29,10 @@ func NewPostgresSagaStore(ctx context.Context, databaseURL string) (*PostgresSag
 		pool.Close()
 		return nil, err
 	}
-	return &PostgresSagaStore{pool: pool}, nil
+	return &PostgresSagaStore{
+		pool:    pool,
+		queries: storedb.New(pool),
+	}, nil
 }
 
 // Close releases all connections in the pool.
@@ -37,54 +42,67 @@ func (s *PostgresSagaStore) Close() {
 
 // DeleteByCorrelationID removes a saga by correlationID. Intended for test cleanup only.
 func (s *PostgresSagaStore) DeleteByCorrelationID(ctx context.Context, correlationID string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM sagas WHERE correlation_id = $1`, correlationID)
-	return err
+	return s.queries.DeleteSagaByCorrelationID(ctx, correlationID)
 }
 
 func (s *PostgresSagaStore) Create(ctx context.Context, saga *model.SagaInstance) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO sagas
-			(id, correlation_id, order_id, state, item, qty, amount,
-			 retry_count, step_deadline, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		saga.ID, saga.CorrelationID, saga.OrderID, string(saga.State),
-		saga.Item, saga.Qty, saga.Amount,
-		saga.RetryCount, saga.StepDeadline, saga.CreatedAt, saga.UpdatedAt,
-	)
-	return err
+	qty, err := int32Param("qty", saga.Qty)
+	if err != nil {
+		return err
+	}
+	retryCount, err := int32Param("retry_count", saga.RetryCount)
+	if err != nil {
+		return err
+	}
+	return s.queries.CreateSaga(ctx, storedb.CreateSagaParams{
+		ID:            saga.ID,
+		CorrelationID: saga.CorrelationID,
+		OrderID:       saga.OrderID,
+		State:         string(saga.State),
+		Item:          saga.Item,
+		Qty:           qty,
+		Amount:        saga.Amount,
+		RetryCount:    retryCount,
+		StepDeadline:  saga.StepDeadline,
+		CreatedAt:     saga.CreatedAt,
+		UpdatedAt:     saga.UpdatedAt,
+	})
 }
 
 func (s *PostgresSagaStore) Get(ctx context.Context, correlationID string) (*model.SagaInstance, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT id, correlation_id, order_id, state, item, qty,
-		       amount::float8, retry_count, step_deadline, created_at, updated_at
-		FROM sagas
-		WHERE correlation_id = $1`, correlationID)
-	return scanSaga(row)
+	row, err := s.queries.GetSagaByCorrelationID(ctx, correlationID)
+	if err != nil {
+		return nil, mapNotFound(err)
+	}
+	return sagaFromCorrelationIDRow(&row), nil
 }
 
 func (s *PostgresSagaStore) GetByID(ctx context.Context, id string) (*model.SagaInstance, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT id, correlation_id, order_id, state, item, qty,
-		       amount::float8, retry_count, step_deadline, created_at, updated_at
-		FROM sagas
-		WHERE id = $1`, id)
-	return scanSaga(row)
+	row, err := s.queries.GetSagaByID(ctx, id)
+	if err != nil {
+		return nil, mapNotFound(err)
+	}
+	return sagaFromIDRow(&row), nil
 }
 
 // Update persists state changes using optimistic locking on updated_at.
 // Returns (false, nil) when the row was modified by a concurrent writer.
 func (s *PostgresSagaStore) Update(ctx context.Context, saga *model.SagaInstance) (bool, error) {
-	result, err := s.pool.Exec(ctx, `
-		UPDATE sagas
-		SET state=$2, retry_count=$3, step_deadline=$4, updated_at=NOW()
-		WHERE id=$1 AND updated_at=$5`,
-		saga.ID, string(saga.State), saga.RetryCount, saga.StepDeadline, saga.UpdatedAt,
-	)
+	retryCount, err := int32Param("retry_count", saga.RetryCount)
 	if err != nil {
 		return false, err
 	}
-	return result.RowsAffected() > 0, nil
+	rowsAffected, err := s.queries.UpdateSaga(ctx, storedb.UpdateSagaParams{
+		State:        string(saga.State),
+		RetryCount:   retryCount,
+		StepDeadline: saga.StepDeadline,
+		ID:           saga.ID,
+		UpdatedAt:    saga.UpdatedAt,
+	})
+	if err != nil {
+		return false, err
+	}
+	return rowsAffected > 0, nil
 }
 
 func (s *PostgresSagaStore) ListByState(ctx context.Context, state model.SagaState) ([]*model.SagaInstance, error) {
@@ -93,149 +111,184 @@ func (s *PostgresSagaStore) ListByState(ctx context.Context, state model.SagaSta
 
 func (s *PostgresSagaStore) List(ctx context.Context, state *model.SagaState) ([]*model.SagaInstance, error) {
 	if state == nil {
-		rows, err := s.pool.Query(ctx, `
-			SELECT id, correlation_id, order_id, state, item, qty,
-			       amount::float8, retry_count, step_deadline, created_at, updated_at
-			FROM sagas
-			ORDER BY created_at DESC`)
+		rows, err := s.queries.ListSagas(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return collectSagas(rows)
-	}
-
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, correlation_id, order_id, state, item, qty,
-		       amount::float8, retry_count, step_deadline, created_at, updated_at
-		FROM sagas
-		WHERE state = $1
-		ORDER BY created_at DESC`, string(*state))
-	if err != nil {
-		return nil, err
-	}
-	return collectSagas(rows)
-}
-
-func (s *PostgresSagaStore) ListTimedOut(ctx context.Context, now time.Time) ([]*model.SagaInstance, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, correlation_id, order_id, state, item, qty,
-		       amount::float8, retry_count, step_deadline, created_at, updated_at
-		FROM sagas
-		WHERE step_deadline < $1
-		  AND state = ANY($2)`,
-		now,
-		[]string{
-			string(model.SagaPaymentPending),
-			string(model.SagaInventoryPending),
-			string(model.SagaCancelPaymentPending),
-		})
-	if err != nil {
-		return nil, err
-	}
-	return collectSagas(rows)
-}
-
-func (s *PostgresSagaStore) RecordHistory(ctx context.Context, entry *model.SagaHistoryEntry) error {
-	return insertHistory(ctx, s.pool, entry)
-}
-
-type historyInserter interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-func insertHistory(ctx context.Context, q historyInserter, entry *model.SagaHistoryEntry) error {
-	if entry.CreatedAt.IsZero() {
-		entry.CreatedAt = time.Now()
-	}
-	row := q.QueryRow(ctx, `
-		INSERT INTO saga_history (saga_id, from_state, to_state, event, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, created_at`,
-		entry.SagaID, string(entry.FromState), string(entry.ToState), entry.Event, entry.CreatedAt,
-	)
-	return row.Scan(&entry.ID, &entry.CreatedAt)
-}
-
-func (s *PostgresSagaStore) ListHistory(ctx context.Context, sagaID string) ([]*model.SagaHistoryEntry, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, saga_id, from_state, to_state, COALESCE(event, ''), created_at
-		FROM saga_history
-		WHERE saga_id = $1
-		ORDER BY created_at ASC, id ASC`, sagaID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make([]*model.SagaHistoryEntry, 0)
-	for rows.Next() {
-		var entry model.SagaHistoryEntry
-		var fromState, toState string
-		if err := rows.Scan(
-			&entry.ID, &entry.SagaID, &fromState, &toState, &entry.Event, &entry.CreatedAt,
-		); err != nil {
-			return nil, err
+		result := make([]*model.SagaInstance, 0, len(rows))
+		for i := range rows {
+			result = append(result, sagaFromListRow(&rows[i]))
 		}
-		entry.FromState = model.SagaState(fromState)
-		entry.ToState = model.SagaState(toState)
-		result = append(result, &entry)
+		return result, nil
 	}
-	if err := rows.Err(); err != nil {
+
+	rows, err := s.queries.ListSagasByState(ctx, string(*state))
+	if err != nil {
 		return nil, err
 	}
-	if len(result) == 0 {
-		if _, err := s.GetByID(ctx, sagaID); err != nil {
-			return nil, err
-		}
+	result := make([]*model.SagaInstance, 0, len(rows))
+	for i := range rows {
+		result = append(result, sagaFromListByStateRow(&rows[i]))
 	}
 	return result, nil
 }
 
-// scanSaga reads a single row into a SagaInstance.
-func scanSaga(row pgx.Row) (*model.SagaInstance, error) {
-	var saga model.SagaInstance
-	var state string
-	var deadline pgtype.Timestamptz
-	err := row.Scan(
-		&saga.ID, &saga.CorrelationID, &saga.OrderID, &state,
-		&saga.Item, &saga.Qty, &saga.Amount,
-		&saga.RetryCount, &deadline, &saga.CreatedAt, &saga.UpdatedAt,
-	)
+func (s *PostgresSagaStore) ListTimedOut(ctx context.Context, now time.Time) ([]*model.SagaInstance, error) {
+	rows, err := s.queries.ListTimedOutSagas(ctx, storedb.ListTimedOutSagasParams{
+		Now: now,
+		States: []string{
+			string(model.SagaPaymentPending),
+			string(model.SagaInventoryPending),
+			string(model.SagaCancelPaymentPending),
+		},
+	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
 		return nil, err
 	}
-	saga.State = model.SagaState(state)
-	if deadline.Valid {
-		t := deadline.Time
-		saga.StepDeadline = &t
+	result := make([]*model.SagaInstance, 0, len(rows))
+	for i := range rows {
+		result = append(result, sagaFromTimedOutRow(&rows[i]))
 	}
-	return &saga, nil
+	return result, nil
 }
 
-// collectSagas iterates a pgx.Rows result and returns all sagas.
-func collectSagas(rows pgx.Rows) ([]*model.SagaInstance, error) {
-	defer rows.Close()
-	result := make([]*model.SagaInstance, 0)
-	for rows.Next() {
-		var saga model.SagaInstance
-		var state string
-		var deadline pgtype.Timestamptz
-		if err := rows.Scan(
-			&saga.ID, &saga.CorrelationID, &saga.OrderID, &state,
-			&saga.Item, &saga.Qty, &saga.Amount,
-			&saga.RetryCount, &deadline, &saga.CreatedAt, &saga.UpdatedAt,
-		); err != nil {
+func (s *PostgresSagaStore) RecordHistory(ctx context.Context, entry *model.SagaHistoryEntry) error {
+	if entry.CreatedAt.IsZero() {
+		entry.CreatedAt = time.Now()
+	}
+	row, err := s.queries.CreateHistoryEntry(ctx, storedb.CreateHistoryEntryParams{
+		SagaID:    entry.SagaID,
+		FromState: string(entry.FromState),
+		ToState:   string(entry.ToState),
+		Event:     entry.Event,
+		CreatedAt: entry.CreatedAt,
+	})
+	if err != nil {
+		return err
+	}
+	entry.ID = row.ID
+	entry.CreatedAt = row.CreatedAt
+	return nil
+}
+
+func (s *PostgresSagaStore) ListHistory(ctx context.Context, sagaID string) ([]*model.SagaHistoryEntry, error) {
+	rows, err := s.queries.ListSagaHistory(ctx, sagaID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		if _, err := s.GetByID(ctx, sagaID); err != nil {
 			return nil, err
 		}
-		saga.State = model.SagaState(state)
-		if deadline.Valid {
-			t := deadline.Time
-			saga.StepDeadline = &t
-		}
-		result = append(result, &saga)
 	}
-	return result, rows.Err()
+	result := make([]*model.SagaHistoryEntry, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, &model.SagaHistoryEntry{
+			ID:        row.ID,
+			SagaID:    row.SagaID,
+			FromState: model.SagaState(row.FromState),
+			ToState:   model.SagaState(row.ToState),
+			Event:     row.Event,
+			CreatedAt: row.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
+func mapNotFound(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func int32Param(name string, value int) (int32, error) {
+	const (
+		minInt32 = -2147483648
+		maxInt32 = 2147483647
+	)
+	if value < minInt32 || value > maxInt32 {
+		return 0, fmt.Errorf("%s value %d is outside PostgreSQL integer range", name, value)
+	}
+	return int32(value), nil
+}
+
+func sagaFromCorrelationIDRow(row *storedb.GetSagaByCorrelationIDRow) *model.SagaInstance {
+	return &model.SagaInstance{
+		ID:            row.ID,
+		CorrelationID: row.CorrelationID,
+		OrderID:       row.OrderID,
+		State:         model.SagaState(row.State),
+		Item:          row.Item,
+		Qty:           int(row.Qty),
+		Amount:        row.Amount,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+		StepDeadline:  row.StepDeadline,
+		RetryCount:    int(row.RetryCount),
+	}
+}
+
+func sagaFromIDRow(row *storedb.GetSagaByIDRow) *model.SagaInstance {
+	return &model.SagaInstance{
+		ID:            row.ID,
+		CorrelationID: row.CorrelationID,
+		OrderID:       row.OrderID,
+		State:         model.SagaState(row.State),
+		Item:          row.Item,
+		Qty:           int(row.Qty),
+		Amount:        row.Amount,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+		StepDeadline:  row.StepDeadline,
+		RetryCount:    int(row.RetryCount),
+	}
+}
+
+func sagaFromListRow(row *storedb.ListSagasRow) *model.SagaInstance {
+	return &model.SagaInstance{
+		ID:            row.ID,
+		CorrelationID: row.CorrelationID,
+		OrderID:       row.OrderID,
+		State:         model.SagaState(row.State),
+		Item:          row.Item,
+		Qty:           int(row.Qty),
+		Amount:        row.Amount,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+		StepDeadline:  row.StepDeadline,
+		RetryCount:    int(row.RetryCount),
+	}
+}
+
+func sagaFromListByStateRow(row *storedb.ListSagasByStateRow) *model.SagaInstance {
+	return &model.SagaInstance{
+		ID:            row.ID,
+		CorrelationID: row.CorrelationID,
+		OrderID:       row.OrderID,
+		State:         model.SagaState(row.State),
+		Item:          row.Item,
+		Qty:           int(row.Qty),
+		Amount:        row.Amount,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+		StepDeadline:  row.StepDeadline,
+		RetryCount:    int(row.RetryCount),
+	}
+}
+
+func sagaFromTimedOutRow(row *storedb.ListTimedOutSagasRow) *model.SagaInstance {
+	return &model.SagaInstance{
+		ID:            row.ID,
+		CorrelationID: row.CorrelationID,
+		OrderID:       row.OrderID,
+		State:         model.SagaState(row.State),
+		Item:          row.Item,
+		Qty:           int(row.Qty),
+		Amount:        row.Amount,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+		StepDeadline:  row.StepDeadline,
+		RetryCount:    int(row.RetryCount),
+	}
 }
