@@ -9,6 +9,8 @@ import (
 	"github.com/grnsv/saga-pattern-go/orchestration/saga-orchestrator/internal/store"
 )
 
+const timeoutEvent = "Timeout"
+
 // TimeoutWorker periodically checks for sagas whose step deadline has expired
 // and either retries the current command or transitions to a compensation/failure state.
 type TimeoutWorker struct {
@@ -115,25 +117,28 @@ func (w *TimeoutWorker) resendCommand(ctx context.Context, saga *model.SagaInsta
 func (w *TimeoutWorker) exhaustSaga(ctx context.Context, saga *model.SagaInstance) error {
 	switch saga.State {
 	case model.SagaPaymentPending:
+		fromState := saga.State
 		saga.State = model.SagaFailed
 		saga.StepDeadline = nil
-		return w.updateAndAct(ctx, saga, func() error {
+		return w.updateAndAct(ctx, saga, fromState, func() error {
 			return w.orchestrator.publishSagaFailed(ctx, saga, "payment step timed out after retries exhausted")
 		})
 
 	case model.SagaInventoryPending:
+		fromState := saga.State
 		saga.State = model.SagaCancelPaymentPending
 		deadline := time.Now().Add(w.orchestrator.stepTimeout)
 		saga.StepDeadline = &deadline
 		saga.RetryCount = 0
-		return w.updateAndAct(ctx, saga, func() error {
+		return w.updateAndAct(ctx, saga, fromState, func() error {
 			return w.orchestrator.publishCancelPayment(ctx, saga)
 		})
 
 	case model.SagaCancelPaymentPending:
+		fromState := saga.State
 		saga.State = model.SagaFailed
 		saga.StepDeadline = nil
-		return w.updateAndAct(ctx, saga, func() error {
+		return w.updateAndAct(ctx, saga, fromState, func() error {
 			return w.orchestrator.publishSagaFailed(ctx, saga, "compensation timed out, manual intervention required")
 		})
 
@@ -144,7 +149,12 @@ func (w *TimeoutWorker) exhaustSaga(ctx context.Context, saga *model.SagaInstanc
 
 // updateAndAct persists the saga with optimistic locking and, on success,
 // executes the follow-up action (publish command/event).
-func (w *TimeoutWorker) updateAndAct(ctx context.Context, saga *model.SagaInstance, act func() error) error {
+func (w *TimeoutWorker) updateAndAct(
+	ctx context.Context,
+	saga *model.SagaInstance,
+	fromState model.SagaState,
+	act func() error,
+) error {
 	ok, err := w.store.Update(ctx, saga)
 	if err != nil {
 		return err
@@ -154,11 +164,11 @@ func (w *TimeoutWorker) updateAndAct(ctx context.Context, saga *model.SagaInstan
 			"correlationId", saga.CorrelationID)
 		return nil
 	}
-
 	slog.InfoContext(ctx, "saga retries exhausted",
 		"correlationId", saga.CorrelationID,
 		"state", saga.State,
 	)
+	w.orchestrator.recordHistory(ctx, saga, fromState, saga.State, timeoutEvent)
 
 	return act()
 }

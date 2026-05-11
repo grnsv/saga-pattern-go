@@ -19,6 +19,12 @@ type SagaStore interface {
 	// Get retrieves a saga by its correlation ID.
 	Get(ctx context.Context, correlationID string) (*model.SagaInstance, error)
 
+	// GetByID retrieves a saga by its stable saga ID.
+	GetByID(ctx context.Context, id string) (*model.SagaInstance, error)
+
+	// List returns sagas, optionally filtered by state when state is non-nil.
+	List(ctx context.Context, state *model.SagaState) ([]*model.SagaInstance, error)
+
 	// Update persists state changes to an existing saga using optimistic locking.
 	// It checks that updated_at in the store matches saga.UpdatedAt before writing.
 	// Returns (false, nil) when the saga was concurrently modified (lost race);
@@ -31,4 +37,10 @@ type SagaStore interface {
 	// ListTimedOut returns sagas whose step_deadline has passed and are still
 	// in an intermediate state. Used by the timeout worker.
 	ListTimedOut(ctx context.Context, now time.Time) ([]*model.SagaInstance, error)
+
+	// RecordHistory persists one saga transition history entry.
+	RecordHistory(ctx context.Context, entry *model.SagaHistoryEntry) error
+
+	// ListHistory returns transition history for a saga by saga ID.
+	ListHistory(ctx context.Context, sagaID string) ([]*model.SagaHistoryEntry, error)
 }

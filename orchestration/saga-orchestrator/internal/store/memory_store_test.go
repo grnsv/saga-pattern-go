@@ -122,6 +122,26 @@ func TestMemoryStore_ListByState(t *testing.T) {
 	assert.Len(t, list, 2)
 }
 
+func TestMemoryStore_List(t *testing.T) {
+	s := store.NewInMemorySagaStore()
+	s1 := newSaga("corr-list-a")
+	s2 := newSaga("corr-list-b")
+	s2.State = model.SagaCompleted
+
+	require.NoError(t, s.Create(context.Background(), s1))
+	require.NoError(t, s.Create(context.Background(), s2))
+
+	all, err := s.List(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+
+	state := model.SagaCompleted
+	filtered, err := s.List(context.Background(), &state)
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "corr-list-b", filtered[0].CorrelationID)
+}
+
 func TestMemoryStore_ListTimedOut(t *testing.T) {
 	s := store.NewInMemorySagaStore()
 
@@ -148,4 +168,44 @@ func TestMemoryStore_ListTimedOut(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "corr-timeout", list[0].CorrelationID)
+}
+
+func TestMemoryStore_RecordHistory_ListHistory(t *testing.T) {
+	s := store.NewInMemorySagaStore()
+	saga := newSaga("corr-history")
+	require.NoError(t, s.Create(context.Background(), saga))
+
+	require.NoError(t, s.RecordHistory(context.Background(), &model.SagaHistoryEntry{
+		SagaID:    saga.ID,
+		FromState: model.SagaStarted,
+		ToState:   model.SagaPaymentPending,
+		Event:     "StartSaga",
+	}))
+
+	history, err := s.ListHistory(context.Background(), saga.ID)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.NotZero(t, history[0].ID)
+	assert.Equal(t, model.SagaStarted, history[0].FromState)
+	assert.Equal(t, model.SagaPaymentPending, history[0].ToState)
+	assert.Equal(t, "StartSaga", history[0].Event)
+}
+
+func TestMemoryStore_RecordHistory_NotFound(t *testing.T) {
+	s := store.NewInMemorySagaStore()
+
+	err := s.RecordHistory(context.Background(), &model.SagaHistoryEntry{
+		SagaID:    "missing-saga-id",
+		FromState: model.SagaStarted,
+		ToState:   model.SagaPaymentPending,
+		Event:     "StartSaga",
+	})
+
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+func TestMemoryStore_ListHistory_NotFound(t *testing.T) {
+	s := store.NewInMemorySagaStore()
+	_, err := s.ListHistory(context.Background(), "missing")
+	assert.ErrorIs(t, err, store.ErrNotFound)
 }

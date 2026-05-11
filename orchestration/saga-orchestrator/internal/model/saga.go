@@ -16,15 +16,25 @@ const (
 
 // SagaInstance holds the full state of a running or completed saga.
 type SagaInstance struct {
-	ID            string
-	CorrelationID string
-	OrderID       string
-	State         SagaState
-	Item          string
-	Qty           int
-	Amount        float64
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	StepDeadline  *time.Time // deadline for the current step; nil when idle
-	RetryCount    int
+	ID            string     `json:"id"`
+	CorrelationID string     `json:"correlationId"`
+	OrderID       string     `json:"orderId"`
+	State         SagaState  `json:"state"`
+	Item          string     `json:"item"`
+	Qty           int        `json:"qty"`
+	Amount        float64    `json:"amount"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
+	StepDeadline  *time.Time `json:"stepDeadline,omitempty"` // deadline for the current step; nil when idle
+	RetryCount    int        `json:"retryCount"`
+}
+
+// SagaHistoryEntry records a persisted saga state transition.
+type SagaHistoryEntry struct {
+	ID        int64     `json:"id"`
+	SagaID    string    `json:"sagaId"`
+	FromState SagaState `json:"fromState"`
+	ToState   SagaState `json:"toState"`
+	Event     string    `json:"event,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }

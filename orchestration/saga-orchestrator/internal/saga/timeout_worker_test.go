@@ -124,6 +124,13 @@ func TestTimeoutWorker_Exhaust_PaymentPending_Failed(t *testing.T) {
 	require.Len(t, p.calls, 1)
 	assert.Equal(t, "saga-events", p.calls[0].topic)
 	assert.Equal(t, messages.EvtSagaFailed, p.eventType(t))
+
+	history, err := s.ListHistory(ctx, updated.ID)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, model.SagaPaymentPending, history[0].FromState)
+	assert.Equal(t, model.SagaFailed, history[0].ToState)
+	assert.Equal(t, "Timeout", history[0].Event)
 }
 
 func TestTimeoutWorker_Exhaust_InventoryPending_CancelPayment(t *testing.T) {

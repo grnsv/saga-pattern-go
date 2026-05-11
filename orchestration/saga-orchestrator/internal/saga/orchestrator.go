@@ -113,6 +113,7 @@ func (o *Orchestrator) StartSaga(ctx context.Context, correlationID string, payl
 	if err := o.store.Create(ctx, saga); err != nil {
 		return fmt.Errorf("create saga: %w", err)
 	}
+	o.recordHistory(ctx, saga, model.SagaStarted, saga.State, string(messages.CmdStartSaga))
 
 	if err := o.publishReservePayment(ctx, saga); err != nil {
 		return fmt.Errorf("publish ReservePayment: %w", err)
@@ -140,6 +141,7 @@ func (o *Orchestrator) HandleEvent(ctx context.Context, event *messages.Event) e
 		return nil //nolint:nilerr // soft failure: unknown saga is not retryable
 	}
 
+	fromState := saga.State
 	action, err := o.machine.Apply(saga, event.Type)
 	if err != nil {
 		slog.WarnContext(ctx, "no valid transition, skipping event",
@@ -163,12 +165,12 @@ func (o *Orchestrator) HandleEvent(ctx context.Context, event *messages.Event) e
 		)
 		return nil
 	}
-
 	slog.InfoContext(ctx, "saga state updated",
 		"correlationId", event.CorrelationID,
 		"event", event.Type,
 		"state", saga.State,
 	)
+	o.recordHistory(ctx, saga, fromState, saga.State, string(event.Type))
 
 	// Execute the action after successful persist to avoid publishing commands
 	// for states that were never written to the store.
@@ -178,6 +180,37 @@ func (o *Orchestrator) HandleEvent(ctx context.Context, event *messages.Event) e
 		}
 	}
 	return nil
+}
+
+func (o *Orchestrator) recordHistory(
+	ctx context.Context,
+	saga *model.SagaInstance,
+	fromState model.SagaState,
+	toState model.SagaState,
+	event string,
+) {
+	if err := o.store.RecordHistory(ctx, newHistoryEntry(saga, fromState, toState, event)); err != nil {
+		slog.WarnContext(ctx, "failed to record saga history",
+			"correlationId", saga.CorrelationID,
+			"sagaId", saga.ID,
+			"error", err,
+		)
+	}
+}
+
+func newHistoryEntry(
+	saga *model.SagaInstance,
+	fromState model.SagaState,
+	toState model.SagaState,
+	event string,
+) *model.SagaHistoryEntry {
+	return &model.SagaHistoryEntry{
+		SagaID:    saga.ID,
+		FromState: fromState,
+		ToState:   toState,
+		Event:     event,
+		CreatedAt: time.Now(),
+	}
 }
 
 // setStepDeadline sets or clears saga.StepDeadline based on the new state.

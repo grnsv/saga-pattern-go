@@ -13,7 +13,9 @@ import (
 
 // SagaReader is the narrow store interface required by HTTPHandler.
 type SagaReader interface {
-	Get(ctx context.Context, correlationID string) (*model.SagaInstance, error)
+	GetByID(ctx context.Context, id string) (*model.SagaInstance, error)
+	List(ctx context.Context, state *model.SagaState) ([]*model.SagaInstance, error)
+	ListHistory(ctx context.Context, sagaID string) ([]*model.SagaHistoryEntry, error)
 }
 
 // HTTPHandler serves the orchestrator's HTTP endpoints.
@@ -28,14 +30,40 @@ func NewHTTPHandler(s SagaReader) *HTTPHandler {
 
 // RegisterRoutes mounts all HTTP routes on the given mux.
 func (h *HTTPHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /sagas", h.listSagas)
 	mux.HandleFunc("GET /sagas/{id}", h.getSaga)
+	mux.HandleFunc("GET /sagas/{id}/history", h.getSagaHistory)
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("GET /readyz", h.readyz)
 }
 
+func (h *HTTPHandler) listSagas(w http.ResponseWriter, r *http.Request) {
+	var state *model.SagaState
+	if rawState := r.URL.Query().Get("state"); rawState != "" {
+		parsed := model.SagaState(rawState)
+		if !isValidSagaState(parsed) {
+			http.Error(w, `{"error":"invalid state"}`, http.StatusBadRequest)
+			return
+		}
+		state = &parsed
+	}
+
+	sagas, err := h.store.List(r.Context(), state)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "failed to list sagas", "error", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(sagas); err != nil {
+		slog.ErrorContext(r.Context(), "failed to encode sagas", "error", err)
+	}
+}
+
 func (h *HTTPHandler) getSaga(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	saga, err := h.store.Get(r.Context(), id)
+	saga, err := h.store.GetByID(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			http.Error(w, `{"error":"saga not found"}`, http.StatusNotFound)
@@ -49,6 +77,39 @@ func (h *HTTPHandler) getSaga(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(saga); err != nil {
 		slog.ErrorContext(r.Context(), "failed to encode saga", "error", err)
+	}
+}
+
+func (h *HTTPHandler) getSagaHistory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	history, err := h.store.ListHistory(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			http.Error(w, `{"error":"saga not found"}`, http.StatusNotFound)
+			return
+		}
+		slog.ErrorContext(r.Context(), "failed to get saga history", "id", id, "error", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(history); err != nil {
+		slog.ErrorContext(r.Context(), "failed to encode saga history", "error", err)
+	}
+}
+
+func isValidSagaState(state model.SagaState) bool {
+	switch state {
+	case model.SagaStarted,
+		model.SagaPaymentPending,
+		model.SagaInventoryPending,
+		model.SagaCompleted,
+		model.SagaCancelPaymentPending,
+		model.SagaFailed:
+		return true
+	default:
+		return false
 	}
 }
 

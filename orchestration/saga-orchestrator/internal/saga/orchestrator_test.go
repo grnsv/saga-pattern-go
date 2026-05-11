@@ -98,6 +98,13 @@ func TestOrchestrator_StartSaga_CreatesAndPublishes(t *testing.T) {
 	require.Len(t, p.calls, 1)
 	assert.Equal(t, "payment-commands", p.calls[0].topic)
 	assert.Equal(t, messages.CmdReservePayment, p.commandType(t))
+
+	history, err := s.ListHistory(context.Background(), saved.ID)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, model.SagaStarted, history[0].FromState)
+	assert.Equal(t, model.SagaPaymentPending, history[0].ToState)
+	assert.Equal(t, string(messages.CmdStartSaga), history[0].Event)
 }
 
 // --- HandleEvent tests (happy path) ---
@@ -114,6 +121,13 @@ func TestOrchestrator_HandleEvent_PaymentReserved(t *testing.T) {
 	require.Len(t, p.calls, 1)
 	assert.Equal(t, "inventory-commands", p.calls[0].topic)
 	assert.Equal(t, messages.CmdReserveInventory, p.commandType(t))
+
+	history, err := s.ListHistory(context.Background(), saga.ID)
+	require.NoError(t, err)
+	require.Len(t, history, 2)
+	assert.Equal(t, model.SagaPaymentPending, history[1].FromState)
+	assert.Equal(t, model.SagaInventoryPending, history[1].ToState)
+	assert.Equal(t, string(messages.EvtPaymentReserved), history[1].Event)
 }
 
 func TestOrchestrator_HandleEvent_InventoryReserved(t *testing.T) {
