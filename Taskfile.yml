@@ -1,7 +1,8 @@
 version: "3"
 
 vars:
-  BIN_DIR: "{{.ROOT_DIR}}/.bin"
+  GOLANGCI_LINT:
+    sh: go tool -n golangci-lint
   MODULES:
     sh: find . -name 'go.mod' ! -path './go.mod' ! -path '*/integration_test/go.mod' -exec dirname {} \; | sort
 
@@ -24,19 +25,17 @@ tasks:
   fmt:
     desc: Format code via golangci-lint fmt
     aliases: [format]
-    deps: [tools]
     cmds:
       - for: { var: MODULES }
-        cmd: echo "=> fmt {{.ITEM}}" && cd "{{.ITEM}}" && "{{.BIN_DIR}}/golangci-lint" fmt ./...
-      - echo "=> fmt ./choreography/integration_test" && cd choreography/integration_test && "{{.BIN_DIR}}/golangci-lint" fmt ./...
+        cmd: echo "=> fmt {{.ITEM}}" && cd "{{.ITEM}}" && "{{.GOLANGCI_LINT}}" fmt ./...
+      - echo "=> fmt ./choreography/integration_test" && cd choreography/integration_test && "{{.GOLANGCI_LINT}}" fmt ./...
 
   lint:
     desc: Run golangci-lint on all modules
-    deps: [tools]
     cmds:
       - for: { var: MODULES }
-        cmd: echo "=> lint {{.ITEM}}" && cd "{{.ITEM}}" && "{{.BIN_DIR}}/golangci-lint" run ./...
-      - echo "=> lint ./choreography/integration_test" && cd choreography/integration_test && "{{.BIN_DIR}}/golangci-lint" run --build-tags integration ./...
+        cmd: echo "=> lint {{.ITEM}}" && cd "{{.ITEM}}" && "{{.GOLANGCI_LINT}}" run ./...
+      - echo "=> lint ./choreography/integration_test" && cd choreography/integration_test && "{{.GOLANGCI_LINT}}" run --build-tags integration ./...
 
   test:
     desc: Run tests across all modules
@@ -226,18 +225,6 @@ tasks:
         curl -s "http://localhost:8081/sagas/$ORDER_ID" | jq . || true
         exit 1
 
-  tools:
-    desc: Install development tools
-    internal: true
-    cmds:
-      - mkdir -p {{.BIN_DIR}}
-      - GOBIN={{.BIN_DIR}} go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-    sources:
-      - go.mod
-      - go.sum
-    generates:
-      - "{{.BIN_DIR}}/golangci-lint"
-
   minikube-start:
     desc: Start Minikube cluster
     cmds:
@@ -282,5 +269,5 @@ tasks:
   clean:
     desc: Remove build artifacts
     cmds:
-      - rm -rf {{.BIN_DIR}}
+      - rm -rf .bin
       - find . -name 'coverage.out' -delete

@@ -20,17 +20,16 @@ jobs:
           cd orchestration/saga-orchestrator
           go tool sqlc generate
           git diff --exit-code -- internal/store/db
-      - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
       - name: Run golangci-lint on all modules
         run: |
+          golangci_lint=$(go tool -n golangci-lint)
           modules=$(find . -name 'go.mod' ! -path './go.mod' ! -path '*/integration_test/go.mod' -exec dirname {} \; | sort)
           for mod in $modules; do
             echo "=> lint $mod"
-            (cd "$mod" && golangci-lint run ./...)
+            (cd "$mod" && "$golangci_lint" run ./...)
           done
           echo "=> lint ./choreography/integration_test"
-          (cd choreography/integration_test && golangci-lint run --build-tags integration ./...)
+          (cd choreography/integration_test && "$golangci_lint" run --build-tags integration ./...)
 
   test:
     name: Test
