@@ -33,6 +33,7 @@ func (h *HTTPHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sagas", h.listSagas)
 	mux.HandleFunc("GET /sagas/{id}", h.getSaga)
 	mux.HandleFunc("GET /sagas/{id}/history", h.getSagaHistory)
+	mux.HandleFunc("GET /sagas/{id}/diagram", h.getSagaDiagram)
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("GET /readyz", h.readyz)
 }
@@ -96,6 +97,32 @@ func (h *HTTPHandler) getSagaHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(history); err != nil {
 		slog.ErrorContext(r.Context(), "failed to encode saga history", "error", err)
+	}
+}
+
+func (h *HTTPHandler) getSagaDiagram(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	saga, err := h.store.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			http.Error(w, `{"error":"saga not found"}`, http.StatusNotFound)
+			return
+		}
+		slog.ErrorContext(r.Context(), "failed to get saga for diagram", "id", id, "error", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	history, err := h.store.ListHistory(r.Context(), saga.ID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "failed to get saga history for diagram", "id", id, "error", err)
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if _, err := w.Write([]byte(sagaDiagram(saga, history))); err != nil {
+		slog.ErrorContext(r.Context(), "failed to write saga diagram", "error", err)
 	}
 }
 
